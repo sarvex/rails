@@ -1,22 +1,22 @@
+# frozen_string_literal: true
 
-require 'active_support/core_ext/hash/keys'
-require 'active_support/core_ext/string/output_safety'
-require 'active_support/number_helper'
+require "active_support/core_ext/hash/keys"
+require "active_support/core_ext/string/output_safety"
+require "active_support/number_helper"
 
 module ActionView
-  # = Action View Number Helpers
-  module Helpers #:nodoc:
-
+  module Helpers # :nodoc:
+    # = Action View Number \Helpers
+    #
     # Provides methods for converting numbers into formatted strings.
     # Methods are provided for phone numbers, currency, percentage,
-    # precision, positional notation, file size and pretty printing.
+    # precision, positional notation, file size, and pretty printing.
     #
     # Most methods expect a +number+ argument, and will return it
     # unchanged if can't be converted into a valid number.
     module NumberHelper
-
       # Raised when argument +number+ param given to the helpers is invalid and
-      # the option :raise is set to  +true+.
+      # the option +:raise+ is set to  +true+.
       class InvalidNumberError < StandardError
         attr_accessor :number
         def initialize(number)
@@ -24,7 +24,7 @@ module ActionView
         end
       end
 
-      # Formats a +number+ into a US phone number (e.g., (555)
+      # Formats a +number+ into a phone number (US by default e.g., (555)
       # 123-9876). You can customize the format in the +options+ hash.
       #
       # ==== Options
@@ -36,6 +36,8 @@ module ActionView
       #   end of the generated number.
       # * <tt>:country_code</tt> - Sets the country code for the phone
       #   number.
+      # * <tt>:pattern</tt> - Specifies how the number is divided into three
+      #   groups with the custom regexp to override the default format.
       # * <tt>:raise</tt> - If true, raises +InvalidNumberError+ when
       #   the argument is invalid.
       #
@@ -53,6 +55,11 @@ module ActionView
       #
       #   number_to_phone(1235551234, country_code: 1, extension: 1343, delimiter: ".")
       #   # => +1.123.555.1234 x 1343
+      #
+      #   number_to_phone(75561234567, pattern: /(\d{1,4})(\d{4})(\d{4})$/, area_code: true)
+      #   # => "(755) 6123-4567"
+      #   number_to_phone(13312345678, pattern: /(\d{3})(\d{4})(\d{4})$/)
+      #   # => "133-1234-5678"
       def number_to_phone(number, options = {})
         return unless number
         options = options.symbolize_keys
@@ -63,6 +70,14 @@ module ActionView
 
       # Formats a +number+ into a currency string (e.g., $13.65). You
       # can customize the format in the +options+ hash.
+      #
+      # The currency unit and number formatting of the current locale will be used
+      # unless otherwise specified in the provided options. No currency conversion
+      # is performed. If the user is given a way to change their locale, they will
+      # also be able to change the relative value of the currency displayed with
+      # this helper. If your application will ever support multiple locales, you
+      # may want to specify a constant <tt>:locale</tt> option or consider
+      # using a library capable of currency conversion.
       #
       # ==== Options
       #
@@ -80,12 +95,15 @@ module ActionView
       #   (defaults to "%u%n").  Fields are <tt>%u</tt> for the
       #   currency, and <tt>%n</tt> for the number.
       # * <tt>:negative_format</tt> - Sets the format for negative
-      #   numbers (defaults to prepending an hyphen to the formatted
+      #   numbers (defaults to prepending a hyphen to the formatted
       #   number given by <tt>:format</tt>).  Accepts the same fields
       #   than <tt>:format</tt>, except <tt>%n</tt> is here the
       #   absolute value of the number.
       # * <tt>:raise</tt> - If true, raises +InvalidNumberError+ when
       #   the argument is invalid.
+      # * <tt>:strip_insignificant_zeros</tt> - If +true+ removes
+      #   insignificant zeros after the decimal separator (defaults to
+      #   +false+).
       #
       # ==== Examples
       #
@@ -97,12 +115,16 @@ module ActionView
       #
       #   number_to_currency("123a456", raise: true)           # => InvalidNumberError
       #
+      #   number_to_currency(-0.456789, precision: 0)
+      #   # => "$0"
       #   number_to_currency(-1234567890.50, negative_format: "(%u%n)")
       #   # => ($1,234,567,890.50)
       #   number_to_currency(1234567890.50, unit: "R$", separator: ",", delimiter: "")
       #   # => R$1234567890,50
       #   number_to_currency(1234567890.50, unit: "R$", separator: ",", delimiter: "", format: "%n %u")
       #   # => 1234567890,50 R$
+      #   number_to_currency(1234567890.50, strip_insignificant_zeros: true)
+      #   # => "$1,234,567,890.5"
       def number_to_currency(number, options = {})
         delegate_number_helper_method(:number_to_currency, number, options)
       end
@@ -140,7 +162,7 @@ module ActionView
       #   number_to_percentage(302.24398923423, precision: 5)              # => 302.24399%
       #   number_to_percentage(1000, locale: :fr)                          # => 1 000,000%
       #   number_to_percentage("98a")                                      # => 98a%
-      #   number_to_percentage(100, format: "%n  %")                       # => 100  %
+      #   number_to_percentage(100, format: "%n  %")                       # => 100.000  %
       #
       #   number_to_percentage("98a", raise: true)                         # => InvalidNumberError
       def number_to_percentage(number, options = {})
@@ -159,6 +181,9 @@ module ActionView
       #   to ",").
       # * <tt>:separator</tt> - Sets the separator between the
       #   fractional and integer digits (defaults to ".").
+      # * <tt>:delimiter_pattern</tt> - Sets a custom regular expression used for
+      #   deriving the placement of delimiter. Helpful when using currency formats
+      #   like INR.
       # * <tt>:raise</tt> - If true, raises +InvalidNumberError+ when
       #   the argument is invalid.
       #
@@ -175,7 +200,10 @@ module ActionView
       #   number_with_delimiter(98765432.98, delimiter: " ", separator: ",")
       #   # => 98 765 432,98
       #
-      #  number_with_delimiter("112a", raise: true)              # => raise InvalidNumberError
+      #   number_with_delimiter("123456.78",
+      #     delimiter_pattern: /(\d+?)(?=(\d\d)+(\d)(?!\d))/)    # => "1,23,456.78"
+      #
+      #   number_with_delimiter("112a", raise: true)              # => raise InvalidNumberError
       def number_with_delimiter(number, options = {})
         delegate_number_helper_method(:number_to_delimited, number, options)
       end
@@ -226,7 +254,7 @@ module ActionView
       end
 
       # Formats the bytes in +number+ into a more understandable
-      # representation (e.g., giving it 1500 yields 1.5 KB). This
+      # representation (e.g., giving it 1500 yields 1.46 KB). This
       # method is useful for reporting file sizes to users. You can
       # customize the format in the +options+ hash.
       #
@@ -249,8 +277,6 @@ module ActionView
       # * <tt>:strip_insignificant_zeros</tt> - If +true+ removes
       #   insignificant zeros after the decimal separator (defaults to
       #   +true+)
-      # * <tt>:prefix</tt> - If +:si+ formats the number using the SI
-      #   prefix (defaults to :binary)
       # * <tt>:raise</tt> - If true, raises +InvalidNumberError+ when
       #   the argument is invalid.
       #
@@ -262,6 +288,8 @@ module ActionView
       #   number_to_human_size(1234567)                                      # => 1.18 MB
       #   number_to_human_size(1234567890)                                   # => 1.15 GB
       #   number_to_human_size(1234567890123)                                # => 1.12 TB
+      #   number_to_human_size(1234567890123456)                             # => 1.1 PB
+      #   number_to_human_size(1234567890123456789)                          # => 1.07 EB
       #   number_to_human_size(1234567, precision: 2)                        # => 1.2 MB
       #   number_to_human_size(483989, precision: 2)                         # => 470 KB
       #   number_to_human_size(1234567, precision: 2, separator: ',')        # => 1,2 MB
@@ -272,15 +300,15 @@ module ActionView
       end
 
       # Pretty prints (formats and approximates) a number in a way it
-      # is more readable by humans (eg.: 1200000000 becomes "1.2
+      # is more readable by humans (e.g.: 1200000000 becomes "1.2
       # Billion"). This is useful for numbers that can get very large
       # (and too hard to read).
       #
       # See <tt>number_to_human_size</tt> if you want to print a file
       # size.
       #
-      # You can also define you own unit-quantifier names if you want
-      # to use other decimal units (eg.: 1500 becomes "1.5
+      # You can also define your own unit-quantifier names if you want
+      # to use other decimal units (e.g.: 1500 becomes "1.5
       # kilometers", 0.150 becomes "150 milliliters", etc). You may
       # define a wide range of unit quantifiers, even fractional ones
       # (centi, deci, mili, etc).
@@ -343,13 +371,14 @@ module ActionView
       # out by default (set <tt>:strip_insignificant_zeros</tt> to
       # +false+ to change that):
       #
-      # number_to_human(12.00001)                                       # => "12"
-      # number_to_human(12.00001, strip_insignificant_zeros: false)     # => "12.0"
+      #   number_to_human(12.00001)                                       # => "12"
+      #   number_to_human(12.00001, strip_insignificant_zeros: false)     # => "12.0"
       #
       # ==== Custom Unit Quantifiers
       #
       # You can also use your own custom unit quantifiers:
-      #  number_to_human(500000, units: {unit: "ml", thousand: "lt"})  # => "500 lt"
+      #
+      #   number_to_human(500000, units: {unit: "ml", thousand: "lt"})  # => "500 lt"
       #
       # If in your I18n locale you have:
       #   distance:
@@ -366,66 +395,65 @@ module ActionView
       #
       # Then you could do:
       #
-      #  number_to_human(543934, units: :distance)              # => "544 kilometers"
-      #  number_to_human(54393498, units: :distance)            # => "54400 kilometers"
-      #  number_to_human(54393498000, units: :distance)         # => "54.4 gazillion-distance"
-      #  number_to_human(343, units: :distance, precision: 1)   # => "300 meters"
-      #  number_to_human(1, units: :distance)                   # => "1 meter"
-      #  number_to_human(0.34, units: :distance)                # => "34 centimeters"
+      #   number_to_human(543934, units: :distance)              # => "544 kilometers"
+      #   number_to_human(54393498, units: :distance)            # => "54400 kilometers"
+      #   number_to_human(54393498000, units: :distance)         # => "54.4 gazillion-distance"
+      #   number_to_human(343, units: :distance, precision: 1)   # => "300 meters"
+      #   number_to_human(1, units: :distance)                   # => "1 meter"
+      #   number_to_human(0.34, units: :distance)                # => "34 centimeters"
       #
       def number_to_human(number, options = {})
         delegate_number_helper_method(:number_to_human, number, options)
       end
 
       private
+        def delegate_number_helper_method(method, number, options)
+          return unless number
+          options = escape_unsafe_options(options.symbolize_keys)
 
-      def delegate_number_helper_method(method, number, options)
-        return unless number
-        options = escape_unsafe_options(options.symbolize_keys)
-
-        wrap_with_output_safety_handling(number, options.delete(:raise)) {
-          ActiveSupport::NumberHelper.public_send(method, number, options)
-        }
-      end
-
-      def escape_unsafe_options(options)
-        options[:format]          = ERB::Util.html_escape(options[:format]) if options[:format]
-        options[:negative_format] = ERB::Util.html_escape(options[:negative_format]) if options[:negative_format]
-        options[:separator]       = ERB::Util.html_escape(options[:separator]) if options[:separator]
-        options[:delimiter]       = ERB::Util.html_escape(options[:delimiter]) if options[:delimiter]
-        options[:unit]            = ERB::Util.html_escape(options[:unit]) if options[:unit] && !options[:unit].html_safe?
-        options[:units]           = escape_units(options[:units]) if options[:units] && Hash === options[:units]
-        options
-      end
-
-      def escape_units(units)
-        Hash[units.map do |k, v|
-          [k, ERB::Util.html_escape(v)]
-        end]
-      end
-
-      def wrap_with_output_safety_handling(number, raise_on_invalid, &block)
-        valid_float = valid_float?(number)
-        raise InvalidNumberError, number if raise_on_invalid && !valid_float
-
-        formatted_number = yield
-
-        if valid_float || number.html_safe?
-          formatted_number.html_safe
-        else
-          formatted_number
+          wrap_with_output_safety_handling(number, options.delete(:raise)) {
+            ActiveSupport::NumberHelper.public_send(method, number, options)
+          }
         end
-      end
 
-      def valid_float?(number)
-        !parse_float(number, false).nil?
-      end
+        def escape_unsafe_options(options)
+          options[:format]          = ERB::Util.html_escape(options[:format]) if options[:format]
+          options[:negative_format] = ERB::Util.html_escape(options[:negative_format]) if options[:negative_format]
+          options[:separator]       = ERB::Util.html_escape(options[:separator]) if options[:separator]
+          options[:delimiter]       = ERB::Util.html_escape(options[:delimiter]) if options[:delimiter]
+          options[:unit]            = ERB::Util.html_escape(options[:unit]) if options[:unit] && !options[:unit].html_safe?
+          options[:units]           = escape_units(options[:units]) if options[:units] && Hash === options[:units]
+          options
+        end
 
-      def parse_float(number, raise_error)
-        Float(number)
-      rescue ArgumentError, TypeError
-        raise InvalidNumberError, number if raise_error
-      end
+        def escape_units(units)
+          units.transform_values do |v|
+            ERB::Util.html_escape(v)
+          end
+        end
+
+        def wrap_with_output_safety_handling(number, raise_on_invalid, &block)
+          valid_float = valid_float?(number)
+          raise InvalidNumberError, number if raise_on_invalid && !valid_float
+
+          formatted_number = yield
+
+          if valid_float || number.html_safe?
+            formatted_number.html_safe
+          else
+            formatted_number
+          end
+        end
+
+        def valid_float?(number)
+          !parse_float(number, false).nil?
+        end
+
+        def parse_float(number, raise_error)
+          result = Float(number, exception: false)
+          raise InvalidNumberError, number if result.nil? && raise_error
+          result
+        end
     end
   end
 end

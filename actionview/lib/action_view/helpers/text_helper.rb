@@ -1,9 +1,16 @@
-require 'active_support/core_ext/string/filters'
-require 'active_support/core_ext/array/extract_options'
+# frozen_string_literal: true
+
+require "active_support/core_ext/string/filters"
+require "active_support/core_ext/string/access"
+require "active_support/core_ext/array/extract_options"
+require "action_view/helpers/sanitize_helper"
+require "action_view/helpers/tag_helper"
+require "action_view/helpers/output_safety_helper"
 
 module ActionView
-  # = Action View Text Helpers
-  module Helpers #:nodoc:
+  module Helpers # :nodoc:
+    # = Action View Text \Helpers
+    #
     # The TextHelper module provides a set of methods for filtering, formatting
     # and transforming strings, which can reduce the amount of inline Ruby code in
     # your views. These helper methods extend Action View making them callable
@@ -11,9 +18,9 @@ module ActionView
     #
     # ==== Sanitization
     #
-    # Most text helpers by default sanitize the given content, but do not escape it.
-    # This means HTML tags will appear in the page but all malicious code will be removed.
-    # Let's look at some examples using the +simple_format+ method:
+    # Most text helpers that generate HTML output sanitize the given input by default,
+    # but do not escape it. This means HTML tags will appear in the page but all malicious
+    # code will be removed. Let's look at some examples using the +simple_format+ method:
     #
     #   simple_format('<a href="http://example.com/">Example</a>')
     #   # => "<p><a href=\"http://example.com/\">Example</a></p>"
@@ -103,7 +110,7 @@ module ActionView
       # Highlights one or more +phrases+ everywhere in +text+ by inserting it into
       # a <tt>:highlighter</tt> string. The highlighter can be specialized by passing <tt>:highlighter</tt>
       # as a single-quoted string with <tt>\1</tt> where the phrase is to be inserted (defaults to
-      # '<mark>\1</mark>') or passing a block that receives each matched term. By default +text+
+      # <tt><mark>\1</mark></tt>) or passing a block that receives each matched term. By default +text+
       # is sanitized to prevent possible XSS attacks. If the input is trustworthy, passing false
       # for <tt>:sanitize</tt> will turn sanitizing off.
       #
@@ -126,23 +133,26 @@ module ActionView
       #   # => You searched for: <a href="search?q=rails">rails</a>
       #
       #   highlight('<a href="javascript:alert(\'no!\')">ruby</a> on rails', 'rails', sanitize: false)
-      #   # => "<a>ruby</a> on <mark>rails</mark>"
-      def highlight(text, phrases, options = {})
+      #   # => <a href="javascript:alert('no!')">ruby</a> on <mark>rails</mark>
+      def highlight(text, phrases, options = {}, &block)
         text = sanitize(text) if options.fetch(:sanitize, true)
 
         if text.blank? || phrases.blank?
           text || ""
         else
-          match = Array(phrases).map do |p|
-            Regexp === p ? p.to_s : Regexp.escape(p)
-          end.join('|')
+          patterns = Array(phrases).map { |phrase| Regexp === phrase ? phrase : Regexp.escape(phrase) }
+          pattern = /(#{patterns.join("|")})/i
+          highlighter = options.fetch(:highlighter, '<mark>\1</mark>') unless block
 
-          if block_given?
-            text.gsub(/(#{match})(?![^<]*?>)/i) { |found| yield found }
-          else
-            highlighter = options.fetch(:highlighter, '<mark>\1</mark>')
-            text.gsub(/(#{match})(?![^<]*?>)/i, highlighter)
-          end
+          text.scan(/<[^>]*|[^<]+/).each do |segment|
+            if !segment.start_with?("<")
+              if block
+                segment.gsub!(pattern, &block)
+              else
+                segment.gsub!(pattern, highlighter)
+              end
+            end
+          end.join
         end.html_safe
       end
 
@@ -151,7 +161,7 @@ module ActionView
       # defined in <tt>:radius</tt> (which defaults to 100). If the excerpt radius overflows the beginning or end of the +text+,
       # then the <tt>:omission</tt> option (which defaults to "...") will be prepended/appended accordingly. Use the
       # <tt>:separator</tt> option to choose the delimitation. The resulting string will be stripped in any case. If the +phrase+
-      # isn't found, nil is returned.
+      # isn't found, +nil+ is returned.
       #
       #   excerpt('This is an example', 'an', radius: 5)
       #   # => ...s is an exam...
@@ -186,8 +196,8 @@ module ActionView
 
         unless separator.empty?
           text.split(separator).each do |value|
-            if value.match(regex)
-              regex = phrase = value
+            if value.match?(regex)
+              phrase = value
               break
             end
           end
@@ -204,7 +214,12 @@ module ActionView
 
       # Attempts to pluralize the +singular+ word unless +count+ is 1. If
       # +plural+ is supplied, it will use that when count is > 1, otherwise
-      # it will use the Inflector to determine the plural form.
+      # it will use the Inflector to determine the plural form for the given locale,
+      # which defaults to I18n.locale
+      #
+      # The word will be pluralized using rules defined for the locale
+      # (you must define your own inflection rules for languages other than English).
+      # See ActiveSupport::Inflector.pluralize
       #
       #   pluralize(1, 'person')
       #   # => 1 person
@@ -212,16 +227,19 @@ module ActionView
       #   pluralize(2, 'person')
       #   # => 2 people
       #
-      #   pluralize(3, 'person', 'users')
+      #   pluralize(3, 'person', plural: 'users')
       #   # => 3 users
       #
       #   pluralize(0, 'person')
       #   # => 0 people
-      def pluralize(count, singular, plural = nil)
-        word = if (count == 1 || count =~ /^1(\.0+)?$/)
+      #
+      #   pluralize(2, 'Person', locale: :de)
+      #   # => 2 Personen
+      def pluralize(count, singular, plural_arg = nil, plural: plural_arg, locale: I18n.locale)
+        word = if count == 1 || count.to_s.match?(/^1(\.0+)?$/)
           singular
         else
-          plural || singular.pluralize
+          plural || singular.pluralize(locale)
         end
 
         "#{count || 0} #{word}"
@@ -242,25 +260,38 @@ module ActionView
       #
       #   word_wrap('Once upon a time', line_width: 1)
       #   # => Once\nupon\na\ntime
-      def word_wrap(text, options = {})
-        line_width = options.fetch(:line_width, 80)
+      #
+      #   You can also specify a custom +break_sequence+ ("\n" by default)
+      #
+      #   word_wrap('Once upon a time', line_width: 1, break_sequence: "\r\n")
+      #   # => Once\r\nupon\r\na\r\ntime
+      def word_wrap(text, line_width: 80, break_sequence: "\n")
+        # Match up to `line_width` characters, followed by one of
+        #   (1) non-newline whitespace plus an optional newline
+        #   (2) the end of the string, ignoring any trailing newlines
+        #   (3) a newline
+        #
+        # -OR-
+        #
+        # Match an empty line
+        pattern = /(.{1,#{line_width}})(?:[^\S\n]+\n?|\n*\Z|\n)|\n/
 
-        text.split("\n").collect! do |line|
-          line.length > line_width ? line.gsub(/(.{1,#{line_width}})(\s+|$)/, "\\1\n").strip : line
-        end * "\n"
+        text.gsub(pattern, "\\1#{break_sequence}").chomp!(break_sequence)
       end
 
       # Returns +text+ transformed into HTML using simple formatting rules.
-      # Two or more consecutive newlines(<tt>\n\n</tt>) are considered as a
-      # paragraph and wrapped in <tt><p></tt> tags. One newline (<tt>\n</tt>) is
-      # considered as a linebreak and a <tt><br /></tt> tag is appended. This
-      # method does not remove the newlines from the +text+.
+      # Two or more consecutive newlines (<tt>\n\n</tt> or <tt>\r\n\r\n</tt>) are
+      # considered a paragraph and wrapped in <tt><p></tt> tags. One newline
+      # (<tt>\n</tt> or <tt>\r\n</tt>) is considered a linebreak and a
+      # <tt><br /></tt> tag is appended. This method does not remove the
+      # newlines from the +text+.
       #
       # You can pass any HTML attributes into <tt>html_options</tt>. These
       # will be added to all created paragraphs.
       #
       # ==== Options
       # * <tt>:sanitize</tt> - If +false+, does not sanitize +text+.
+      # * <tt>:sanitize_options</tt> - Any extra options you want appended to the sanitize.
       # * <tt>:wrapper_tag</tt> - String representing the wrapper tag, defaults to <tt>"p"</tt>
       #
       # ==== Examples
@@ -285,10 +316,13 @@ module ActionView
       #
       #   simple_format("<blink>Blinkable!</blink> It's true.", {}, sanitize: false)
       #   # => "<p><blink>Blinkable!</blink> It's true.</p>"
+      #
+      #   simple_format("<a target=\"_blank\" href=\"http://example.com\">Continue</a>", {}, { sanitize_options: { attributes: %w[target href] } })
+      #   # => "<p><a target=\"_blank\" href=\"http://example.com\">Continue</a></p>"
       def simple_format(text, html_options = {}, options = {})
         wrapper_tag = options.fetch(:wrapper_tag, :p)
 
-        text = sanitize(text) if options.fetch(:sanitize, true)
+        text = sanitize(text, options.fetch(:sanitize_options, {})) if options.fetch(:sanitize, true)
         paragraphs = split_paragraphs(text)
 
         if paragraphs.empty?
@@ -339,7 +373,7 @@ module ActionView
       #  <% end %>
       def cycle(first_value, *values)
         options = values.extract_options!
-        name = options.fetch(:name, 'default')
+        name = options.fetch(:name, "default")
 
         values.unshift(*first_value)
 
@@ -389,7 +423,7 @@ module ActionView
         cycle.reset if cycle
       end
 
-      class Cycle #:nodoc:
+      class Cycle # :nodoc:
         attr_reader :values
 
         def initialize(first_value, *values)
@@ -408,22 +442,21 @@ module ActionView
         def to_s
           value = @values[@index].to_s
           @index = next_index
-          return value
+          value
         end
 
         private
+          def next_index
+            step_index(1)
+          end
 
-        def next_index
-          step_index(1)
-        end
+          def previous_index
+            step_index(-1)
+          end
 
-        def previous_index
-          step_index(-1)
-        end
-
-        def step_index(n)
-          (@index + n) % @values.size
-        end
+          def step_index(n)
+            (@index + n) % @values.size
+          end
       end
 
       private
@@ -432,7 +465,7 @@ module ActionView
         # uses an instance variable of ActionView::Base.
         def get_cycle(name)
           @_cycles = Hash.new unless defined?(@_cycles)
-          return @_cycles[name]
+          @_cycles[name]
         end
 
         def set_cycle(name, cycle_object)
@@ -454,18 +487,25 @@ module ActionView
           radius   = options.fetch(:radius, 100)
           omission = options.fetch(:omission, "...")
 
-          part = part.split(separator)
-          part.delete("")
-          affix = part.size > radius ? omission : ""
-
-          part = if part_position == :first
-            drop_index = [part.length - radius, 0].max
-            part.drop(drop_index)
-          else
-            part.first(radius)
+          if separator != ""
+            part = part.split(separator)
+            part.delete("")
           end
 
-          return affix, part.join(separator)
+          affix = part.length > radius ? omission : ""
+
+          part =
+            if part_position == :first
+              part.last(radius)
+            else
+              part.first(radius)
+            end
+
+          if separator != ""
+            part = part.join(separator)
+          end
+
+          return affix, part
         end
     end
   end

@@ -1,8 +1,9 @@
-require 'abstract_unit'
+# frozen_string_literal: true
+
+require "abstract_unit"
 
 module AbstractController
   module Testing
-
     class ControllerRenderer < AbstractController::Base
       include AbstractController::Rendering
       include ActionView::Rendering
@@ -17,23 +18,18 @@ module AbstractController
         "renderer/string.erb" => "With String",
         "renderer/symbol.erb" => "With Symbol",
         "string/with_path.erb" => "With String With Path",
-        "some/file.erb" => "With File"
       )]
 
       def template
-        render :template => "template"
-      end
-
-      def file
-        render :file => "some/file"
+        render template: "template"
       end
 
       def inline
-        render :inline => "With <%= :Inline %>"
+        render inline: "With <%= :Inline %>"
       end
 
       def text
-        render :text => "With Text"
+        render plain: "With Text"
       end
 
       def default
@@ -54,7 +50,6 @@ module AbstractController
     end
 
     class TestRenderer < ActiveSupport::TestCase
-
       def setup
         @controller = ControllerRenderer.new
       end
@@ -62,11 +57,6 @@ module AbstractController
       def test_render_template
         assert_equal "With Template", @controller.process(:template)
         assert_equal "With Template", @controller.response_body
-      end
-
-      def test_render_file
-        assert_equal "With File", @controller.process(:file)
-        assert_equal "With File", @controller.response_body
       end
 
       def test_render_inline

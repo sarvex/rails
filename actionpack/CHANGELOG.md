@@ -1,282 +1,503 @@
-*   Drop request class from RouteSet constructor.
- 
-    If you would like to use a custom request class, please subclass and implement
-    the `request_class` method.
+*   Parse JSON `response.parsed_body` with `ActiveSupport::HashWithIndifferentAccess`
 
-    *tenderlove@ruby-lang.org*
+    Integrate with Minitest's new `assert_pattern` by parsing the JSON contents
+    of `response.parsed_body` with `ActiveSupport::HashWithIndifferentAccess`, so
+    that it's pattern-matching compatible.
 
-*   Fallback to `ENV['RAILS_RELATIVE_URL_ROOT']` in `url_for`.
+    *Sean Doyle*
 
-    Fixed an issue where the `RAILS_RELATIVE_URL_ROOT` environment variable is not
-    prepended to the path when `url_for` is called. If `SCRIPT_NAME` (used by Rack)
-    is set, it takes precedence.
+*   Add support for Playwright as a driver for system tests.
 
-    Fixes #5122.
+    *Yuki Nishijima*
 
-    *Yasyf Mohamedali*
+*   Fix `HostAuthorization` potentially displaying the value of the
+    X_FORWARDED_HOST header when the HTTP_HOST header is being blocked.
 
-*   Partitioning of routes is now done when the routes are being drawn. This
-    helps to decrease the time spent filtering the routes during the first request.
+    *Hartley McGuire*, *Daniel Schlosser*
 
-    *Guo Xiang Tan*
+*   Rename `fixture_file_upload` method to `file_fixture_upload`
 
-*   Fix regression in functional tests. Responses should have default headers
-    assigned.
+    Declare an alias to preserve the backwards compatibility of `fixture_file_upload`
 
-    See #18423.
+    *Sean Doyle*
 
-    *Jeremy Kemper*, *Yves Senn*
+*   `ActionDispatch::SystemTesting::TestHelpers::ScreenshotHelper` saves the screenshot path in test metadata on failure.
 
-*   Deprecate AbstractController#skip_action_callback in favor of individual skip_callback methods
-    (which can be made to raise an error if no callback was removed).
+    *Matija Čupić*
 
-    *Iain Beeston*
+*   `config.dom_testing_default_html_version` controls the HTML parser used by
+    `ActionDispatch::Assertions#html_document`.
 
-*   Alias the `ActionDispatch::Request#uuid` method to `ActionDispatch::Request#request_id`.
-    Due to implementation, `config.log_tags = [:request_id]` also works in substitute
-    for `config.log_tags = [:uuid]`.
+    The Rails 7.1 default configuration opts into the HTML5 parser when it is supported, to better
+    represent what the DOM would be in a browser user agent. Previously this test helper always used
+    Nokogiri's HTML4 parser.
 
-    *David Ilizarov*
+    *Mike Dalessio*
 
-*   Change filter on /rails/info/routes to use an actual path regexp from rails
-    and not approximate javascript version. Oniguruma supports much more
-    extensive list of features than javascript regexp engine.
+*   The `with_routing` helper can now be called at the class level. When called at the class level, the routes will
+    be setup before each test, and reset after every test. For example:
 
-    Fixes #18402.
-
-    *Ravil Bayramgalin*
-
-*   Non-string authenticity tokens do not raise NoMethodError when decoding
-    the masked token.
-
-    *Ville Lautanala*
-
-*   Add `http_cache_forever` to Action Controller, so we can cache a response
-    that never gets expired.
-
-    *arthurnn*
-
-*   `ActionController#translate` supports symbols as shortcuts.
-    When shortcut is given it also lookups without action name.
-
-    *Max Melentiev*
-
-*   Expand `ActionController::ConditionalGet#fresh_when` and `stale?` to also
-    accept a collection of records as the first argument, so that the
-    following code can be written in a shorter form.
-
-        # Before
-        def index
-          @articles = Article.all
-          fresh_when(etag: @articles, last_modified: @articles.maximum(:updated_at))
+    ```ruby
+    class RoutingTest < ActionController::TestCase
+      with_routing do |routes|
+        routes.draw do
+          resources :articles
+          resources :authors
         end
+      end
 
-        # After
-        def index
-          @articles = Article.all
-          fresh_when(@articles)
+      def test_articles_route
+        assert_routing("/articles", controller: "articles", action: "index")
+      end
+
+       def test_authors_route
+        assert_routing("/authors", controller: "authors", action: "index")
+      end
+    end
+    ```
+
+    *Andrew Novoselac*
+
+*   The `Mime::Type` now supports handling types with parameters and correctly handles quotes.
+    When parsing the accept header, the parameters before the q-parameter are kept and if a matching mime-type exists it is used.
+    To keep the current functionality, a fallback is created to look for the media-type without the parameters.
+
+    This change allows for custom MIME-types that are more complex like `application/vnd.api+json; profile="https://jsonapi.org/profiles/ethanresnick/cursor-pagination/" ext="https://jsonapi.org/ext/atomic"` for the [JSON API](https://jsonapi.org/).
+
+    *Nicolas Erni*
+
+*   The url_for helpers now support a new option called `path_params`.
+    This is very useful in situations where you only want to add a required param that is part of the route's URL but for other route not append an extraneous query param.
+
+    Given the following router...
+    ```ruby
+    Rails.application.routes.draw do
+      scope ":account_id" do
+        get "dashboard" => "pages#dashboard", as: :dashboard
+        get "search/:term" => "search#search", as: :search
+      end
+      delete "signout" => "sessions#destroy", as: :signout
+    end
+    ```
+
+    And given the following `ApplicationController`
+    ```ruby
+      class ApplicationController < ActionController::Base
+        def default_url_options
+          { path_params: { account_id: "foo" } }
         end
+      end
+    ```
 
-    *claudiob*
+    The standard url_for helper and friends will now behave as follows:
 
-*   Explicitly ignored wildcard verbs when searching for HEAD routes before fallback
+    ```ruby
+    dashboard_path # => /foo/dashboard
+    dashboard_path(account_id: "bar") # => /bar/dashboard
 
-    Fixes an issue where a mounted rack app at root would intercept the HEAD
-    request causing an incorrect behavior during the fall back to GET requests.
+    signout_path # => /signout
+    signout_path(account_id: "bar") # => /signout?account_id=bar
+    signout_path(account_id: "bar", path_params: { account_id: "baz" }) # => /signout?account_id=bar
+    search_path("quin") # => /foo/search/quin
+    ```
 
-    Example:
+    *Jason Meller, Jeremy Beker*
 
-        draw do
-            get '/home' => 'test#index'
-            mount rack_app, at: '/'
-        end
-        head '/home'
-        assert_response :success
+*   Change `action_dispatch.show_exceptions` to one of `:all`, `:rescuable`, or
+    `:none`. `:all` and `:none` behave the same as the previous `true` and
+    `false` respectively. The new `:rescuable` option will only show exceptions
+    that can be rescued (e.g. `ActiveRecord::RecordNotFound`). `:rescuable` is
+    now the default for the test environment.
 
-    In this case, a HEAD request runs through the routes the first time and fails
-    to match anything. Then, it runs through the list with the fallback and matches
-    `get '/home'`. The original behavior would match the rack app in the first pass.
+    *Jon Dufresne*
 
-    *Terence Sun*
+*   `config.action_dispatch.cookies_serializer` now accepts `:message_pack` and
+    `:message_pack_allow_marshal` as serializers. These serializers require the
+    [`msgpack` gem](https://rubygems.org/gems/msgpack) (>= 1.7.0).
 
-*   Migrating xhr methods to keyword arguments syntax
-    in `ActionController::TestCase` and `ActionDispatch::Integration`
+    The Message Pack format can provide improved performance and smaller payload
+    sizes. It also supports roundtripping some Ruby types that are not supported
+    by JSON. For example:
 
-    Old syntax:
+      ```ruby
+      cookies.encrypted[:foo] = [{ a: 1 }, { b: 2 }.with_indifferent_access, 1.to_d, Time.at(0, 123)]
 
-        xhr :get, :create, params: { id: 1 }
+      # BEFORE with config.action_dispatch.cookies_serializer = :json
+      cookies.encrypted[:foo]
+      # => [{"a"=>1}, {"b"=>2}, "1.0", "1969-12-31T18:00:00.000-06:00"]
+      cookies.encrypted[:foo].map(&:class)
+      # => [Hash, Hash, String, String]
 
-    New syntax example:
+      # AFTER with config.action_dispatch.cookies_serializer = :message_pack
+      cookies.encrypted[:foo]
+      # => [{:a=>1}, {"b"=>2}, 0.1e1, 1969-12-31 18:00:00.000123 -0600]
+      cookies.encrypted[:foo].map(&:class)
+      # => [Hash, ActiveSupport::HashWithIndifferentAccess, BigDecimal, Time]
+      ```
 
-        get :create, params: { id: 1 }, xhr: true
+    The `:message_pack` serializer can fall back to deserializing with
+    `ActiveSupport::JSON` when necessary, and the `:message_pack_allow_marshal`
+    serializer can fall back to deserializing with `Marshal` as well as
+    `ActiveSupport::JSON`. Additionally, the `:marshal`, `:json`, and
+    `:json_allow_marshal` (AKA `:hybrid`) serializers can now fall back to
+    deserializing with `ActiveSupport::MessagePack` when necessary. These
+    behaviors ensure old cookies can still be read so that migration is easier.
 
-    *Kir Shatrov*
+    *Jonathan Hefner*
 
-*   Migrating to keyword arguments syntax in `ActionController::TestCase` and
-    `ActionDispatch::Integration` HTTP request methods.
+*   Remove leading dot from domains on cookies set with `domain: :all`, to meet RFC6265 requirements
 
-    Example:
+    *Gareth Adams*
 
-        post :create, params: { y: x }, session: { a: 'b' }
-        get :view, params: { id: 1 }
-        get :view, params: { id: 1 }, format: :json
+*   Include source location in routes extended view.
 
-    *Kir Shatrov*
+    ```bash
+    $ bin/rails routes --expanded
 
-*   Preserve default url options when generating URLs.
+    ...
+    --[ Route 14 ]----------
+    Prefix            | new_gist
+    Verb              | GET
+    URI               | /gist(.:format)
+    Controller#Action | gists/gists#new
+    Source Location   | config/routes/gist.rb:3
+    ```
 
-    Fixes an issue that would cause default_url_options to be lost when
-    generating URLs with fewer positional arguments than parameters in the
-    route definition.
+    *Luan Vieira, John Hawthorn and Daniel Colson*
 
-    *Tekin Suleyman*
+*   Add `without` as an alias of `except` on `ActiveController::Parameters`.
 
-*   Deprecate *_via_redirect integration test methods.
+    *Hidde-Jan Jongsma*
 
-    Use `follow_redirect!` manually after the request call for the same behavior.
+*   Expand search field on `rails/info/routes` to also search **route name**, **http verb** and **controller#action**.
 
-    *Aditya Kapoor*
+    *Jason Kotchoff*
 
-*   Add `ActionController::Renderer` to render arbitrary templates
-    outside controller actions.
-
-    Its functionality is accessible through class methods `render` and
-    `renderer` of `ActionController::Base`.
-
-    *Ravil Bayramgalin*
-
-*   Support `:assigns` option when rendering with controllers/mailers.
-
-    *Ravil Bayramgalin*
-
-*   Default headers, removed in controller actions, are no longer reapplied on
-    the test response.
-
-    *Jonas Baumann*
-
-*   Deprecate all *_filter callbacks in favor of *_action callbacks.
-
-    *Rafael Mendonça França*
-
-*   Allow you to pass `prepend: false` to protect_from_forgery to have the
-    verification callback appended instead of prepended to the chain.
-    This allows you to let the verification step depend on prior callbacks.
-
-    Example:
-
-        class ApplicationController < ActionController::Base
-          before_action :authenticate
-          protect_from_forgery prepend: false, unless: -> { @authenticated_by.oauth? }
-
-          private
-            def authenticate
-              if oauth_request?
-                # authenticate with oauth
-                @authenticated_by = 'oauth'.inquiry
-              else
-                # authenticate with cookies
-                @authenticated_by = 'cookie'.inquiry
-              end
-            end
-        end
-
-    *Josef Šimánek*
-
-*   Remove `ActionController::HideActions`.
-
-    *Ravil Bayramgalin*
-
-*   Remove `respond_to`/`respond_with` placeholder methods, this functionality
-    has been extracted to the `responders` gem.
-
-    *Carlos Antonio da Silva*
-
-*   Remove deprecated assertion files.
+*   Remove deprecated `poltergeist` and `webkit` (capybara-webkit) driver registration for system testing.
 
     *Rafael Mendonça França*
 
-*   Remove deprecated usage of string keys in URL helpers.
+*   Remove deprecated ability to assign a single value to `config.action_dispatch.trusted_proxies`.
 
     *Rafael Mendonça França*
 
-*   Remove deprecated `only_path` option on `*_path` helpers.
+*   Deprecate `config.action_dispatch.return_only_request_media_type_on_content_type`.
 
     *Rafael Mendonça França*
 
-*   Remove deprecated `NamedRouteCollection#helpers`.
+*   Remove deprecated behavior on `Request#content_type`.
 
     *Rafael Mendonça França*
 
-*   Remove deprecated support to define routes with `:to` option that doesn't contain `#`.
+*   Change `ActionController::Instrumentation` to pass `filtered_path` instead of `fullpath` in the event payload to filter sensitive query params
 
-    *Rafael Mendonça França*
+    ```ruby
+    get "/posts?password=test"
+    request.fullpath         # => "/posts?password=test"
+    request.filtered_path    # => "/posts?password=[FILTERED]"
+    ```
 
-*   Remove deprecated `ActionDispatch::Response#to_ary`.
+    *Ritikesh G*
 
-    *Rafael Mendonça França*
+*   Deprecate `AbstractController::Helpers::MissingHelperError`
 
-*   Remove deprecated `ActionDispatch::Request#deep_munge`.
+    *Hartley McGuire*
 
-    *Rafael Mendonça França*
+*   Change `ActionDispatch::Testing::TestResponse#parsed_body` to parse HTML as
+    a Nokogiri document
 
-*   Remove deprecated `ActionDispatch::Http::Parameters#symbolized_path_parameters`.
+    ```ruby
+    get "/posts"
+    response.content_type         # => "text/html; charset=utf-8"
+    response.parsed_body.class    # => Nokogiri::HTML5::Document
+    response.parsed_body.to_html  # => "<!DOCTYPE html>\n<html>\n..."
+    ```
 
-    *Rafael Mendonça França*
+    *Sean Doyle*
 
-*   Remove deprecated option `use_route` in controller tests.
+*   Deprecate `ActionDispatch::IllegalStateError`.
 
-    *Rafael Mendonça França*
+    *Samuel Williams*
 
-*   Ensure `append_info_to_payload` is called even if an exception is raised.
+*   Add HTTP::Request#route_uri_pattern that returns URI pattern of matched route.
 
-    Fixes an issue where when an exception is raised in the request the additonal
-    payload data is not available.
+    *Joel Hawksley*, *Kate Higa*
 
-    See:
-    * #14903
-    * https://github.com/roidrage/lograge/issues/37
+*   Add `ActionDispatch::AssumeSSL` middleware that can be turned on via `config.assume_ssl`.
+    It makes the application believe that all requests are arriving over SSL. This is useful
+    when proxying through a load balancer that terminates SSL, the forwarded request will appear
+    as though its HTTP instead of HTTPS to the application. This makes redirects and cookie
+    security target HTTP instead of HTTPS. This middleware makes the server assume that the
+    proxy already terminated SSL, and that the request really is HTTPS.
 
-    *Dieter Komendera*, *Margus Pärt*
+    *DHH*
 
-*   Correctly rely on the response's status code to handle calls to `head`.
+*   Only use HostAuthorization middleware if `config.hosts` is not empty
 
-    *Robin Dupret*
+    *Hartley McGuire*
 
-*   Using `head` method returns empty response_body instead
-    of returning a single space " ".
+*   Allow raising an error when a callback's only/unless symbols aren't existing methods.
 
-    The old behavior was added as a workaround for a bug in an early
-    version of Safari, where the HTTP headers are not returned correctly
-    if the response body has a 0-length. This is been fixed since and
-    the workaround is no longer necessary.
+    When `before_action :callback, only: :action_name` is declared on a controller that doesn't respond to `action_name`, raise an exception at request time. This is a safety measure to ensure that typos or forgetfulness don't prevent a crucial callback from being run when it should.
 
-    Fixes #18253.
+    For new applications, raising an error for undefined actions is turned on by default. If you do not want to opt-in to this behavior set `config.action_pack.raise_on_missing_callback_actions` to `false` in your application configuration. See #43487 for more details.
 
-    *Prathamesh Sonpatki*
+    *Jess Bees*
 
-*   Fix how polymorphic routes works with objects that implement `to_model`.
+*   Allow cookie options[:domain] to accept a proc to set the cookie domain on a more flexible per-request basis
 
-    *Travis Grathwell*
+    *RobL*
 
-*   Stop converting empty arrays in `params` to `nil`.
+*   When a host is not specified for an `ActionController::Renderer`'s env,
+    the host and related options will now be derived from the routes'
+    `default_url_options` and `ActionDispatch::Http::URL.secure_protocol`.
 
-    This behaviour was introduced in response to CVE-2012-2660, CVE-2012-2694
-    and CVE-2013-0155
+    This means that for an application with a configuration like:
 
-    ActiveRecord now issues a safe query when passing an empty array into
-    a where clause, so there is no longer a need to defend against this type
-    of input (any nils are still stripped from the array).
+      ```ruby
+      Rails.application.default_url_options = { host: "rubyonrails.org" }
+      Rails.application.config.force_ssl = true
+      ```
 
-    *Chris Sinjakli*
+    rendering a URL like:
 
-*   Fixed usage of optional scopes in url helpers.
+      ```ruby
+      ApplicationController.renderer.render inline: "<%= blog_url %>"
+      ```
 
-    *Alex Robbin*
+    will now return `"https://rubyonrails.org/blog"` instead of
+    `"http://example.org/blog"`.
 
-*   Fixed handling of positional url helper arguments when `format: false`.
+    *Jonathan Hefner*
 
-    Fixes #17819.
+*   Add details of cookie name and size to `CookieOverflow` exception.
 
-    *Andrew White*, *Tatiana Soukiassian*
+    *Andy Waite*
 
-Please check [4-2-stable](https://github.com/rails/rails/blob/4-2-stable/actionpack/CHANGELOG.md) for previous changes.
+*   Don't double log the `controller`, `action`, or `namespaced_controller` when using `ActiveRecord::QueryLog`
+
+    Previously if you set `config.active_record.query_log_tags` to an array that included
+    `:controller`, `:namespaced_controller`, or `:action`, that item would get logged twice.
+    This bug has been fixed.
+
+    *Alex Ghiculescu*
+
+*   Add the following permissions policy directives: `hid`, `idle-detection`, `screen-wake-lock`,
+    `serial`, `sync-xhr`, `web-share`.
+
+    *Guillaume Cabanel*
+
+*   The `speaker`, `vibrate`, and `vr` permissions policy directives are now
+    deprecated.
+
+    There is no browser support for these directives, and no plan for browser
+    support in the future. You can just remove these directives from your
+    application.
+
+    *Jonathan Hefner*
+
+*   Added the `:status` option to `assert_redirected_to` to specify the precise
+    HTTP status of the redirect. Defaults to `:redirect` for backwards
+    compatibility.
+
+    *Jon Dufresne*
+
+*   Rescue `JSON::ParserError` in Cookies JSON deserializer to discards marshal dumps:
+
+    Without this change, if `action_dispatch.cookies_serializer` is set to `:json` and
+    the app tries to read a `:marshal` serialized cookie, it would error out which wouldn't
+    clear the cookie and force app users to manually clear it in their browser.
+
+    (See #45127 for original bug discussion)
+
+    *Nathan Bardoux*
+
+*   Add `HTTP_REFERER` when following redirects on integration tests
+
+    This makes `follow_redirect!` a closer simulation of what happens in a real browser
+
+    *Felipe Sateler*
+
+*   Added `exclude?` method to `ActionController::Parameters`.
+
+    *Ian Neubert*
+
+*   Rescue `EOFError` exception from `rack` on a multipart request.
+
+    *Nikita Vasilevsky*
+
+*   Log redirects from routes the same way as redirects from controllers.
+
+    *Dennis Paagman*
+
+*   Prevent `ActionDispatch::ServerTiming` from overwriting existing values in `Server-Timing`.
+    Previously, if another middleware down the chain set `Server-Timing` header,
+    it would overwritten by `ActionDispatch::ServerTiming`.
+
+    *Jakub Malinowski*
+
+*   Allow opting out of the `SameSite` cookie attribute when setting a cookie.
+
+    You can opt out of `SameSite` by passing `same_site: nil`.
+
+    `cookies[:foo] = { value: "bar", same_site: nil }`
+
+    Previously, this incorrectly set the `SameSite` attribute to the value of the `cookies_same_site_protection` setting.
+
+    *Alex Ghiculescu*
+
+*   Allow using `helper_method`s in `content_security_policy` and `permissions_policy`
+
+    Previously you could access basic helpers (defined in helper modules), but not
+    helper methods defined using `helper_method`. Now you can use either.
+
+    ```ruby
+    content_security_policy do |p|
+      p.default_src "https://example.com"
+      p.script_src "https://example.com" if helpers.script_csp?
+    end
+    ```
+
+    *Alex Ghiculescu*
+
+*   Reimplement `ActionController::Parameters#has_value?` and `#value?` to avoid parameters and hashes comparison.
+
+    Deprecated equality between parameters and hashes is going to be removed in Rails 7.2.
+    The new implementation takes care of conversions.
+
+    *Seva Stefkin*
+
+*   Allow only String and Symbol keys in `ActionController::Parameters`.
+    Raise `ActionController::InvalidParameterKey` when initializing Parameters
+    with keys that aren't strings or symbols.
+
+    *Seva Stefkin*
+
+*   Add the ability to use custom logic for storing and retrieving CSRF tokens.
+
+    By default, the token will be stored in the session.  Custom classes can be
+    defined to specify arbitrary behavior, but the ability to store them in
+    encrypted cookies is built in.
+
+    *Andrew Kowpak*
+
+*   Make ActionController::Parameters#values cast nested hashes into parameters.
+
+    *Gannon McGibbon*
+
+*   Introduce `html:` and `screenshot:` kwargs for system test screenshot helper
+
+    Use these as an alternative to the already-available environment variables.
+
+    For example, this will display a screenshot in iTerm, save the HTML, and output
+    its path.
+
+    ```ruby
+    take_screenshot(html: true, screenshot: "inline")
+    ```
+
+    *Alex Ghiculescu*
+
+*   Allow `ActionController::Parameters#to_h` to receive a block.
+
+    *Bob Farrell*
+
+*   Allow relative redirects when `raise_on_open_redirects` is enabled
+
+    *Tom Hughes*
+
+*   Allow Content Security Policy DSL to generate for API responses.
+
+    *Tim Wade*
+
+*   Fix `authenticate_with_http_basic` to allow for missing password.
+
+    Before Rails 7.0 it was possible to handle basic authentication with only a username.
+
+    ```ruby
+    authenticate_with_http_basic do |token, _|
+      ApiClient.authenticate(token)
+    end
+    ```
+
+    This ability is restored.
+
+    *Jean Boussier*
+
+*   Fix `content_security_policy` returning invalid directives.
+
+    Directives such as `self`, `unsafe-eval` and few others were not
+    single quoted when the directive was the result of calling a lambda
+    returning an array.
+
+    ```ruby
+    content_security_policy do |policy|
+      policy.frame_ancestors lambda { [:self, "https://example.com"] }
+    end
+    ```
+
+    With this fix the policy generated from above will now be valid.
+
+    *Edouard Chin*
+
+*   Fix `skip_forgery_protection` to run without raising an error if forgery
+    protection has not been enabled / `verify_authenticity_token` is not a
+    defined callback.
+
+    This fix prevents the Rails 7.0 Welcome Page (`/`) from raising an
+    `ArgumentError` if `default_protect_from_forgery` is false.
+
+    *Brad Trick*
+
+*   Make `redirect_to` return an empty response body.
+
+    Application controllers that wish to add a response body after calling
+    `redirect_to` can continue to do so.
+
+    *Jon Dufresne*
+
+*   Use non-capturing group for subdomain matching in `ActionDispatch::HostAuthorization`
+
+    Since we do nothing with the captured subdomain group, we can use a non-capturing group instead.
+
+    *Sam Bostock*
+
+*   Fix `ActionController::Live` to copy the IsolatedExecutionState in the ephemeral thread.
+
+    Since its inception `ActionController::Live` has been copying thread local variables
+    to keep things such as `CurrentAttributes` set from middlewares working in the controller action.
+
+    With the introduction of `IsolatedExecutionState` in 7.0, some of that global state was lost in
+    `ActionController::Live` controllers.
+
+    *Jean Boussier*
+
+*   Fix setting `trailing_slash: true` in route definition.
+
+    ```ruby
+    get '/test' => "test#index", as: :test, trailing_slash: true
+
+    test_path() # => "/test/"
+    ```
+
+    *Jean Boussier*
+
+*   Make `Session#merge!` stringify keys.
+
+    Previously `Session#update` would, but `merge!` wouldn't.
+
+    *Drew Bragg*
+
+*   Add `:unsafe_hashes` mapping for `content_security_policy`
+
+    ```ruby
+    # Before
+    policy.script_src  :strict_dynamic, "'unsafe-hashes'", "'sha256-rRMdkshZyJlCmDX27XnL7g3zXaxv7ei6Sg+yt4R3svU='"
+
+    # After
+    policy.script_src  :strict_dynamic, :unsafe_hashes, "'sha256-rRMdkshZyJlCmDX27XnL7g3zXaxv7ei6Sg+yt4R3svU='"
+    ```
+
+    *Igor Morozov*
+
+Please check [7-0-stable](https://github.com/rails/rails/blob/7-0-stable/actionpack/CHANGELOG.md) for previous changes.

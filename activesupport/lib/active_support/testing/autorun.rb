@@ -1,5 +1,5 @@
-gem 'minitest'
+# frozen_string_literal: true
 
-require 'minitest'
+require "minitest"
 
 Minitest.autorun

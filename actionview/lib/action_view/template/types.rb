@@ -1,57 +1,50 @@
-require 'set'
-require 'active_support/core_ext/module/attribute_accessors'
+# frozen_string_literal: true
+
+require "active_support/core_ext/module/attribute_accessors"
 
 module ActionView
-  class Template
-    class Types
-      class Type
-        cattr_accessor :types
-        self.types = Set.new
+  class Template # :nodoc:
+    # SimpleType is mostly just a stub implementation for when Action View
+    # is used without Action Dispatch.
+    class SimpleType # :nodoc:
+      @symbols = [ :html, :text, :js, :css, :xml, :json ]
+      class << self
+        attr_reader :symbols
 
-        def self.register(*t)
-          types.merge(t.map(&:to_s))
-        end
-
-        register :html, :text, :js, :css,  :xml, :json
-
-        def self.[](type)
-          return type if type.is_a?(self)
-
-          if type.is_a?(Symbol) || types.member?(type.to_s)
+        def [](type)
+          if type.is_a?(self)
+            type
+          else
             new(type)
           end
         end
 
-        attr_reader :symbol
-
-        def initialize(symbol)
-          @symbol = symbol.to_sym
-        end
-
-        delegate :to_s, :to_sym, :to => :symbol
-        alias to_str to_s
-
-        def ref
-          to_sym || to_s
-        end
-
-        def ==(type)
-          return false if type.blank?
-          symbol.to_sym == type.to_sym
+        def valid_symbols?(symbols) # :nodoc
+          symbols.all? { |s| @symbols.include?(s) }
         end
       end
 
-      cattr_accessor :type_klass
+      attr_reader :symbol
 
-      def self.delegate_to(klass)
-        self.type_klass = klass
+      def initialize(symbol)
+        @symbol = symbol.to_sym
       end
 
-      delegate_to Type
+      def to_s
+        @symbol.to_s
+      end
+      alias to_str to_s
 
-      def self.[](type)
-        type_klass[type]
+      def ref
+        @symbol
+      end
+      alias to_sym ref
+
+      def ==(type)
+        @symbol == type.to_sym unless type.blank?
       end
     end
+
+    Types = SimpleType # :nodoc:
   end
 end

@@ -1,6 +1,7 @@
-require 'rails/generators/resource_helpers'
-require 'rails/generators/rails/model/model_generator'
-require 'active_support/core_ext/object/blank'
+# frozen_string_literal: true
+
+require "rails/generators/resource_helpers"
+require "rails/generators/rails/model/model_generator"
 
 module Rails
   module Generators
@@ -15,6 +16,12 @@ module Rails
                              desc: "Actions for the resource controller"
 
       hook_for :resource_route, required: true
+
+      class << self
+        def desc(description = nil)
+          ERB.new(File.read(usage_path)).result(binding)
+        end
+      end
     end
   end
 end

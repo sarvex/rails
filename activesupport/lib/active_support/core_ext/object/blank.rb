@@ -1,12 +1,14 @@
-# encoding: utf-8
+# frozen_string_literal: true
+
+require "concurrent/map"
 
 class Object
   # An object is blank if it's false, empty, or a whitespace string.
-  # For example, '', '   ', +nil+, [], and {} are all blank.
+  # For example, +nil+, '', '   ', [], {}, and +false+ are all blank.
   #
   # This simplifies
   #
-  #   address.nil? || address.empty?
+  #   !address || address.empty?
   #
   # to
   #
@@ -100,6 +102,9 @@ end
 
 class String
   BLANK_RE = /\A[[:space:]]*\z/
+  ENCODED_BLANKS = Concurrent::Map.new do |h, enc|
+    h[enc] = Regexp.new(BLANK_RE.source.encode(enc), BLANK_RE.options | Regexp::FIXEDENCODING)
+  end
 
   # A string is blank if it's empty or contains whitespaces only:
   #
@@ -114,15 +119,34 @@ class String
   #
   # @return [true, false]
   def blank?
-    BLANK_RE === self
+    # The regexp that matches blank strings is expensive. For the case of empty
+    # strings we can speed up this method (~3.5x) with an empty? call. The
+    # penalty for the rest of strings is marginal.
+    empty? ||
+      begin
+        BLANK_RE.match?(self)
+      rescue Encoding::CompatibilityError
+        ENCODED_BLANKS[self.encoding].match?(self)
+      end
   end
 end
 
-class Numeric #:nodoc:
+class Numeric # :nodoc:
   # No number is blank:
   #
   #   1.blank? # => false
   #   0.blank? # => false
+  #
+  # @return [false]
+  def blank?
+    false
+  end
+end
+
+class Time # :nodoc:
+  # No Time is blank:
+  #
+  #   Time.now.blank? # => false
   #
   # @return [false]
   def blank?

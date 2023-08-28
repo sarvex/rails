@@ -1,66 +1,60 @@
-namespace :rails do
-  desc "Update configs and some other initially generated files (or use just update:configs or update:bin)"
-  task update: [ "update:configs", "update:bin" ]
+# frozen_string_literal: true
 
-  desc "Applies the template supplied by LOCATION=(/path/to/template) or URL"
+namespace :app do
+  desc "Update configs and some other initially generated files (or use just update:configs or update:bin)"
+  task update: [ "update:configs", "update:bin", "update:active_storage", "update:upgrade_guide_info" ]
+
+  desc "Apply the template supplied by LOCATION=(/path/to/template) or URL"
   task template: :environment do
     template = ENV["LOCATION"]
     raise "No LOCATION value given. Please set LOCATION either as path to a file or a URL" if template.blank?
-    template = File.expand_path(template) if template !~ %r{\A[A-Za-z][A-Za-z0-9+\-\.]*://}
-    require 'rails/generators'
-    require 'rails/generators/rails/app/app_generator'
-    generator = Rails::Generators::AppGenerator.new [Rails.root], {}, destination_root: Rails.root
-    generator.apply template, verbose: false
+    require "rails/generators"
+    require "rails/generators/rails/app/app_generator"
+    Rails::Generators::AppGenerator.apply_rails_template(template, Rails.root)
   end
 
   namespace :templates do
     # desc "Copy all the templates from rails to the application directory for customization. Already existing local copies will be overwritten"
     task :copy do
-      generators_lib = File.expand_path("../../generators", __FILE__)
+      generators_lib = File.expand_path("../generators", __dir__)
       project_templates = "#{Rails.root}/lib/templates"
 
       default_templates = { "erb"   => %w{controller mailer scaffold},
-                            "rails" => %w{controller helper scaffold_controller assets} }
+                            "rails" => %w{controller helper scaffold_controller} }
 
       default_templates.each do |type, names|
         local_template_type_dir = File.join(project_templates, type)
-        FileUtils.mkdir_p local_template_type_dir
+        mkdir_p local_template_type_dir, verbose: false
 
         names.each do |name|
           dst_name = File.join(local_template_type_dir, name)
           src_name = File.join(generators_lib, type, name, "templates")
-          FileUtils.cp_r src_name, dst_name
+          cp_r src_name, dst_name, verbose: false
         end
       end
-     end
+    end
   end
 
   namespace :update do
-    def invoke_from_app_generator(method)
-      app_generator.send(method)
-    end
+    require "rails/app_updater"
 
-    def app_generator
-      @app_generator ||= begin
-        require 'rails/generators'
-        require 'rails/generators/rails/app/app_generator'
-        gen = Rails::Generators::AppGenerator.new ["rails"], { with_dispatchers: true },
-                                                             destination_root: Rails.root
-        File.exist?(Rails.root.join("config", "application.rb")) ?
-          gen.send(:app_const) : gen.send(:valid_const?)
-        gen
-      end
-    end
-
-    # desc "Update config/boot.rb from your current rails install"
+    # desc "Update config files from your current rails install"
     task :configs do
-      invoke_from_app_generator :create_boot_file
-      invoke_from_app_generator :update_config_files
+      Rails::AppUpdater.invoke_from_app_generator :create_boot_file
+      Rails::AppUpdater.invoke_from_app_generator :update_config_files
     end
 
-    # desc "Adds new executables to the application bin/ directory"
+    # desc "Add new executables to the application bin/ directory"
     task :bin do
-      invoke_from_app_generator :create_bin_files
+      Rails::AppUpdater.invoke_from_app_generator :update_bin_files
+    end
+
+    task :active_storage do
+      Rails::AppUpdater.invoke_from_app_generator :update_active_storage
+    end
+
+    task :upgrade_guide_info do
+      Rails::AppUpdater.invoke_from_app_generator :display_upgrade_guide_info
     end
   end
 end

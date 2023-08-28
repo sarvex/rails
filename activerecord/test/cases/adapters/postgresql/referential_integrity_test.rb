@@ -1,9 +1,9 @@
-require 'cases/helper'
-require 'support/connection_helper'
+# frozen_string_literal: true
 
-class PostgreSQLReferentialIntegrityTest < ActiveRecord::TestCase
-  self.use_transactional_fixtures = false
+require "cases/helper"
+require "support/connection_helper"
 
+class PostgreSQLReferentialIntegrityTest < ActiveRecord::PostgreSQLTestCase
   include ConnectionHelper
 
   IS_REFERENTIAL_INTEGRITY_SQL = lambda do |sql|
@@ -11,10 +11,10 @@ class PostgreSQLReferentialIntegrityTest < ActiveRecord::TestCase
   end
 
   module MissingSuperuserPrivileges
-    def execute(sql)
+    def execute(sql, name = nil)
       if IS_REFERENTIAL_INTEGRITY_SQL.call(sql)
         super "BROKEN;" rescue nil # put transaction in broken state
-        raise ActiveRecord::StatementInvalid, 'PG::InsufficientPrivilege'
+        raise ActiveRecord::StatementInvalid, "PG::InsufficientPrivilege"
       else
         super
       end
@@ -22,9 +22,9 @@ class PostgreSQLReferentialIntegrityTest < ActiveRecord::TestCase
   end
 
   module ProgrammerMistake
-    def execute(sql)
+    def execute(sql, name = nil)
       if IS_REFERENTIAL_INTEGRITY_SQL.call(sql)
-        raise ArgumentError, 'something is not right.'
+        raise ArgumentError, "something is not right."
       else
         super
       end
@@ -48,10 +48,10 @@ class PostgreSQLReferentialIntegrityTest < ActiveRecord::TestCase
     warning = capture(:stderr) do
       e = assert_raises(ActiveRecord::InvalidForeignKey) do
         @connection.disable_referential_integrity do
-          raise ActiveRecord::InvalidForeignKey, 'Should be re-raised'
+          raise ActiveRecord::InvalidForeignKey, "Should be re-raised"
         end
       end
-      assert_equal 'Should be re-raised', e.message
+      assert_equal "Should be re-raised", e.message
     end
     assert_match (/WARNING: Rails was not able to disable referential integrity/), warning
     assert_match (/cause: PG::InsufficientPrivilege/), warning
@@ -63,10 +63,10 @@ class PostgreSQLReferentialIntegrityTest < ActiveRecord::TestCase
     warning = capture(:stderr) do
       e = assert_raises(ActiveRecord::StatementInvalid) do
         @connection.disable_referential_integrity do
-          raise ActiveRecord::StatementInvalid, 'Should be re-raised'
+          raise ActiveRecord::StatementInvalid, "Should be re-raised"
         end
       end
-      assert_equal 'Should be re-raised', e.message
+      assert_equal "Should be re-raised", e.message
     end
     assert warning.blank?, "expected no warnings but got:\n#{warning}"
   end
@@ -99,13 +99,38 @@ class PostgreSQLReferentialIntegrityTest < ActiveRecord::TestCase
     @connection.extend ProgrammerMistake
 
     assert_raises ArgumentError do
-      @connection.disable_referential_integrity {}
+      @connection.disable_referential_integrity { }
     end
   end
 
-  private
+  def test_all_foreign_keys_valid_having_foreign_keys_in_multiple_schemas
+    @connection.execute <<~SQL
+      CREATE SCHEMA referential_integrity_test_schema;
 
-  def assert_transaction_is_not_broken
-    assert_equal "1", @connection.select_value("SELECT 1")
+      CREATE TABLE referential_integrity_test_schema.nodes (
+        id          INT      GENERATED ALWAYS AS IDENTITY,
+        parent_id   INT      NOT NULL,
+        PRIMARY KEY(id),
+        CONSTRAINT fk_parent_node FOREIGN KEY(parent_id)
+                                  REFERENCES referential_integrity_test_schema.nodes(id)
+      );
+    SQL
+
+    result = @connection.execute <<~SQL
+      SELECT count(*) AS count
+        FROM information_schema.table_constraints
+       WHERE constraint_schema = 'referential_integrity_test_schema'
+         AND constraint_type = 'FOREIGN KEY';
+    SQL
+
+    assert_equal 1, result.first["count"], "referential_integrity_test_schema should have 1 foreign key"
+    @connection.check_all_foreign_keys_valid!
+  ensure
+    @connection.drop_schema "referential_integrity_test_schema", if_exists: true
   end
+
+  private
+    def assert_transaction_is_not_broken
+      assert_equal 1, @connection.select_value("SELECT 1")
+    end
 end

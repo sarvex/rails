@@ -1,4 +1,8 @@
+# frozen_string_literal: true
+
 module ActionMailer
+  # = Action Mailer \MailHelper
+  #
   # Provides helper methods for ActionMailer::Base that can be used for easily
   # formatting messages, accessing mailer or message instances, and the
   # attachments list.
@@ -54,7 +58,7 @@ module ActionMailer
       sentences = [[]]
 
       text.split.each do |word|
-        if sentences.first.present? && (sentences.last + [word]).join(' ').length > len
+        if sentences.first.present? && (sentences.last + [word]).join(" ").length > len
           sentences << [word]
         else
           sentences.last << word

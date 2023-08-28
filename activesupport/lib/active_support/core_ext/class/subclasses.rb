@@ -1,42 +1,44 @@
-require 'active_support/core_ext/module/anonymous'
-require 'active_support/core_ext/module/reachable'
+# frozen_string_literal: true
+
+require "active_support/ruby_features"
+require "active_support/descendants_tracker"
 
 class Class
-  begin
-    ObjectSpace.each_object(Class.new) {}
-
-    def descendants # :nodoc:
-      descendants = []
-      ObjectSpace.each_object(singleton_class) do |k|
-        descendants.unshift k unless k == self
-      end
-      descendants
+  if ActiveSupport::RubyFeatures::CLASS_SUBCLASSES
+    # Returns an array with all classes that are < than its receiver.
+    #
+    #   class C; end
+    #   C.descendants # => []
+    #
+    #   class B < C; end
+    #   C.descendants # => [B]
+    #
+    #   class A < B; end
+    #   C.descendants # => [B, A]
+    #
+    #   class D < C; end
+    #   C.descendants # => [B, A, D]
+    def descendants
+      subclasses.concat(subclasses.flat_map(&:descendants))
     end
-  rescue StandardError # JRuby
-    def descendants # :nodoc:
-      descendants = []
-      ObjectSpace.each_object(Class) do |k|
-        descendants.unshift k if k < self
+  else
+    def descendants
+      ObjectSpace.each_object(singleton_class).reject do |k|
+        k.singleton_class? || k == self
       end
-      descendants.uniq!
-      descendants
+    end
+
+    # Returns an array with the direct children of +self+.
+    #
+    #   class Foo; end
+    #   class Bar < Foo; end
+    #   class Baz < Bar; end
+    #
+    #   Foo.subclasses # => [Bar]
+    def subclasses
+      descendants.select { |descendant| descendant.superclass == self }
     end
   end
 
-  # Returns an array with the direct children of +self+.
-  #
-  #   Integer.subclasses # => [Fixnum, Bignum]
-  #
-  #   class Foo; end
-  #   class Bar < Foo; end
-  #   class Baz < Bar; end
-  #
-  #   Foo.subclasses # => [Bar]
-  def subclasses
-    subclasses, chain = [], descendants
-    chain.each do |k|
-      subclasses << k unless chain.any? { |c| c > k }
-    end
-    subclasses
-  end
+  prepend ActiveSupport::DescendantsTracker::ReloadedClassesFiltering
 end

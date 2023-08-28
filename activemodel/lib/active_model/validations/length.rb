@@ -1,17 +1,22 @@
-module ActiveModel
+# frozen_string_literal: true
 
-  # == Active \Model Length Validator
+require "active_model/validations/resolve_value"
+
+module ActiveModel
   module Validations
     class LengthValidator < EachValidator # :nodoc:
+      include ResolveValue
+
       MESSAGES  = { is: :wrong_length, minimum: :too_short, maximum: :too_long }.freeze
       CHECKS    = { is: :==, minimum: :>=, maximum: :<= }.freeze
 
-      RESERVED_OPTIONS  = [:minimum, :maximum, :within, :is, :tokenizer, :too_short, :too_long]
+      RESERVED_OPTIONS = [:minimum, :maximum, :within, :is, :too_short, :too_long]
 
       def initialize(options)
         if range = (options.delete(:in) || options.delete(:within))
           raise ArgumentError, ":in and :within must be a Range" unless range.is_a?(Range)
-          options[:minimum], options[:maximum] = range.min, range.max
+          options[:minimum] = range.min if range.begin
+          options[:maximum] = (range.exclude_end? ? range.end - 1 : range.end) if range.end
         end
 
         if options[:allow_blank] == false && options[:minimum].nil? && options[:is].nil?
@@ -25,20 +30,21 @@ module ActiveModel
         keys = CHECKS.keys & options.keys
 
         if keys.empty?
-          raise ArgumentError, 'Range unspecified. Specify the :in, :within, :maximum, :minimum, or :is option.'
+          raise ArgumentError, "Range unspecified. Specify the :in, :within, :maximum, :minimum, or :is option."
         end
 
         keys.each do |key|
           value = options[key]
 
-          unless (value.is_a?(Integer) && value >= 0) || value == Float::INFINITY
-            raise ArgumentError, ":#{key} must be a nonnegative Integer or Infinity"
+          unless (value.is_a?(Integer) && value >= 0) ||
+                  value == Float::INFINITY || value == -Float::INFINITY ||
+                  value.is_a?(Symbol) || value.is_a?(Proc)
+            raise ArgumentError, ":#{key} must be a non-negative Integer, Infinity, Symbol, or Proc"
           end
         end
       end
 
       def validate_each(record, attribute, value)
-        value = tokenize(record, value)
         value_length = value.respond_to?(:length) ? value.length : value.to_s.length
         errors_options = options.except(*RESERVED_OPTIONS)
 
@@ -46,7 +52,8 @@ module ActiveModel
           next unless check_value = options[key]
 
           if !value.nil? || skip_nil_check?(key)
-            next if value_length.send(validity_check, check_value)
+            check_value = resolve_value(record, check_value)
+            next if value_length.public_send(validity_check, check_value)
           end
 
           errors_options[:count] = check_value
@@ -54,31 +61,20 @@ module ActiveModel
           default_message = options[MESSAGES[key]]
           errors_options[:message] ||= default_message if default_message
 
-          record.errors.add(attribute, MESSAGES[key], errors_options)
+          record.errors.add(attribute, MESSAGES[key], **errors_options)
         end
       end
 
       private
-      def tokenize(record, value)
-        tokenizer = options[:tokenizer]
-        if tokenizer && value.kind_of?(String)
-          if tokenizer.kind_of?(Proc)
-            tokenizer.call(value)
-          elsif record.respond_to?(tokenizer)
-            record.send(tokenizer, value)
-          end
-        end || value
-      end
-
-      def skip_nil_check?(key)
-        key == :maximum && options[:allow_nil].nil? && options[:allow_blank].nil?
-      end
+        def skip_nil_check?(key)
+          key == :maximum && options[:allow_nil].nil? && options[:allow_blank].nil?
+        end
     end
 
     module HelperMethods
-
-      # Validates that the specified attribute matches the length restrictions
-      # supplied. Only one option can be used at a time:
+      # Validates that the specified attributes match the length restrictions
+      # supplied. Only one constraint option can be used at a time apart from
+      # +:minimum+ and +:maximum+ that can be combined together:
       #
       #   class Person < ActiveRecord::Base
       #     validates_length_of :first_name, maximum: 30
@@ -88,40 +84,42 @@ module ActiveModel
       #     validates_length_of :user_name, within: 6..20, too_long: 'pick a shorter name', too_short: 'pick a longer name'
       #     validates_length_of :zip_code, minimum: 5, too_short: 'please enter at least 5 characters'
       #     validates_length_of :smurf_leader, is: 4, message: "papa is spelled with 4 characters... don't play me."
-      #     validates_length_of :essay, minimum: 100, too_short: 'Your essay must be at least 100 words.',
-      #                         tokenizer: ->(str) { str.scan(/\w+/) }
+      #     validates_length_of :words_in_essay, minimum: 100, too_short: 'Your essay must be at least 100 words.'
+      #
+      #     private
+      #       def words_in_essay
+      #         essay.scan(/\w+/)
+      #       end
       #   end
       #
-      # Configuration options:
+      # Constraint options:
+      #
       # * <tt>:minimum</tt> - The minimum size of the attribute.
       # * <tt>:maximum</tt> - The maximum size of the attribute. Allows +nil+ by
-      #   default if not used with :minimum.
+      #   default if not used with +:minimum+.
       # * <tt>:is</tt> - The exact size of the attribute.
       # * <tt>:within</tt> - A range specifying the minimum and maximum size of
       #   the attribute.
       # * <tt>:in</tt> - A synonym (or alias) for <tt>:within</tt>.
+      #
+      # Other options:
+      #
       # * <tt>:allow_nil</tt> - Attribute may be +nil+; skip validation.
       # * <tt>:allow_blank</tt> - Attribute may be blank; skip validation.
       # * <tt>:too_long</tt> - The error message if the attribute goes over the
       #   maximum (default is: "is too long (maximum is %{count} characters)").
       # * <tt>:too_short</tt> - The error message if the attribute goes under the
-      #   minimum (default is: "is too short (min is %{count} characters)").
+      #   minimum (default is: "is too short (minimum is %{count} characters)").
       # * <tt>:wrong_length</tt> - The error message if using the <tt>:is</tt>
       #   method and the attribute is the wrong size (default is: "is the wrong
       #   length (should be %{count} characters)").
       # * <tt>:message</tt> - The error message to use for a <tt>:minimum</tt>,
       #   <tt>:maximum</tt>, or <tt>:is</tt> violation. An alias of the appropriate
       #   <tt>too_long</tt>/<tt>too_short</tt>/<tt>wrong_length</tt> message.
-      # * <tt>:tokenizer</tt> - A method (as a symbol), proc or string to
-      #   specify how to split up the attribute string. (e.g.
-      #   <tt>tokenizer: :word_tokenizer</tt> to call the +word_tokenizer+ method
-      #   or <tt>tokenizer: ->(str) { str.scan(/\w+/) }</tt> to count words as in
-      #   above example). Defaults to <tt>->(value) { value.split(//) }</tt> which
-      #   counts individual characters.
       #
       # There is also a list of default options supported by every validator:
-      # +:if+, +:unless+, +:on+ and +:strict+.
-      # See <tt>ActiveModel::Validation#validates</tt> for more information
+      # +:if+, +:unless+, +:on+, and +:strict+.
+      # See ActiveModel::Validations::ClassMethods#validates for more information.
       def validates_length_of(*attr_names)
         validates_with LengthValidator, _merge_attributes(attr_names)
       end

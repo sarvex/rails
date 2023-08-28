@@ -1,96 +1,33 @@
-require 'erubis'
+# frozen_string_literal: true
+
+require "strscan"
+require "active_support/core_ext/erb/util"
 
 module ActionView
   class Template
     module Handlers
-      class Erubis < ::Erubis::Eruby
-        def add_preamble(src)
-          @newline_pending = 0
-          src << "@output_buffer = output_buffer || ActionView::OutputBuffer.new;"
-        end
-
-        def add_text(src, text)
-          return if text.empty?
-
-          if text == "\n"
-            @newline_pending += 1
-          else
-            src << "@output_buffer.safe_append='"
-            src << "\n" * @newline_pending if @newline_pending > 0
-            src << escape_text(text)
-            src << "'.freeze;"
-
-            @newline_pending = 0
-          end
-        end
-
-        # Erubis toggles <%= and <%== behavior when escaping is enabled.
-        # We override to always treat <%== as escaped.
-        def add_expr(src, code, indicator)
-          case indicator
-          when '=='
-            add_expr_escaped(src, code)
-          else
-            super
-          end
-        end
-
-        BLOCK_EXPR = /\s*((\s+|\))do|\{)(\s*\|[^|]*\|)?\s*\Z/
-
-        def add_expr_literal(src, code)
-          flush_newline_if_pending(src)
-          if code =~ BLOCK_EXPR
-            src << '@output_buffer.append= ' << code
-          else
-            src << '@output_buffer.append=(' << code << ');'
-          end
-        end
-
-        def add_expr_escaped(src, code)
-          flush_newline_if_pending(src)
-          if code =~ BLOCK_EXPR
-            src << "@output_buffer.safe_expr_append= " << code
-          else
-            src << "@output_buffer.safe_expr_append=(" << code << ");"
-          end
-        end
-
-        def add_stmt(src, code)
-          flush_newline_if_pending(src)
-          super
-        end
-
-        def add_postamble(src)
-          flush_newline_if_pending(src)
-          src << '@output_buffer.to_s'
-        end
-
-        def flush_newline_if_pending(src)
-          if @newline_pending > 0
-            src << "@output_buffer.safe_append='#{"\n" * @newline_pending}'.freeze;"
-            @newline_pending = 0
-          end
-        end
-      end
-
       class ERB
+        autoload :Erubi, "action_view/template/handlers/erb/erubi"
+
         # Specify trim mode for the ERB compiler. Defaults to '-'.
         # See ERB documentation for suitable values.
-        class_attribute :erb_trim_mode
-        self.erb_trim_mode = '-'
+        class_attribute :erb_trim_mode, default: "-"
 
         # Default implementation used.
-        class_attribute :erb_implementation
-        self.erb_implementation = Erubis
+        class_attribute :erb_implementation, default: Erubi
 
         # Do not escape templates of these mime types.
-        class_attribute :escape_whitelist
-        self.escape_whitelist = ["text/plain"]
+        class_attribute :escape_ignore_list, default: ["text/plain"]
+
+        # Strip trailing newlines from rendered output
+        class_attribute :strip_trailing_newlines, default: false
 
         ENCODING_TAG = Regexp.new("\\A(<%#{ENCODING_FLAG}-?%>)[ \\t]*")
 
-        def self.call(template)
-          new.call(template)
+        LocationParsingError = Class.new(StandardError) # :nodoc:
+
+        def self.call(template, source)
+          new.call(template, source)
         end
 
         def supports_streaming?
@@ -101,48 +38,58 @@ module ActionView
           true
         end
 
-        def call(template)
+        # Translate an error location returned by ErrorHighlight to the correct
+        # source location inside the template.
+        def translate_location(spot, backtrace_location, source)
+          # Tokenize the source line
+          tokens = ::ERB::Util.tokenize(source.lines[backtrace_location.lineno - 1])
+          new_first_column = find_offset(spot[:snippet], tokens, spot[:first_column])
+          lineno_delta = spot[:first_lineno] - backtrace_location.lineno
+          spot[:first_lineno] -= lineno_delta
+          spot[:last_lineno] -= lineno_delta
+
+          column_delta = spot[:first_column] - new_first_column
+          spot[:first_column] -= column_delta
+          spot[:last_column] -= column_delta
+          spot[:script_lines] = source.lines
+
+          spot
+        rescue NotImplementedError, LocationParsingError
+          nil
+        end
+
+        def call(template, source)
           # First, convert to BINARY, so in case the encoding is
           # wrong, we can still find an encoding tag
           # (<%# encoding %>) inside the String using a regular
           # expression
-          template_source = template.source.dup.force_encoding(Encoding::ASCII_8BIT)
+          template_source = source.b
 
-          erb = template_source.gsub(ENCODING_TAG, '')
+          erb = template_source.gsub(ENCODING_TAG, "")
           encoding = $2
 
-          erb.force_encoding valid_encoding(template.source.dup, encoding)
+          erb.force_encoding valid_encoding(source.dup, encoding)
 
           # Always make sure we return a String in the default_internal
           erb.encode!
 
-          self.class.erb_implementation.new(
-            erb,
-            :escape => (self.class.escape_whitelist.include? template.type),
-            :trim => (self.class.erb_trim_mode == "-")
-          ).src
-        end
+          # Strip trailing newlines from the template if enabled
+          erb.chomp! if strip_trailing_newlines
 
-        # Returns Regexp to extract a cached resource's name from a cache call at the
-        # first line of a template.
-        # The extracted cache name is expected in $1.
-        #
-        #   <% cache notification do %> # => notification
-        #
-        # The pattern should support templates with a beginning comment:
-        #
-        #   <%# Still extractable even though there's a comment %>
-        #   <% cache notification do %> # => notification
-        #
-        # But fail to extract a name if a resource association is cached.
-        #
-        #   <% cache notification.event do %> # => nil
-        def resource_cache_call_pattern
-          /\A(?:<%#.*%>\n?)?<% cache\(?\s*(\w+\.?)/
+          options = {
+            escape: (self.class.escape_ignore_list.include? template.type),
+            trim: (self.class.erb_trim_mode == "-")
+          }
+
+          if ActionView::Base.annotate_rendered_view_with_filenames && template.format == :html
+            options[:preamble] = "@output_buffer.safe_append='<!-- BEGIN #{template.short_identifier} -->';"
+            options[:postamble] = "@output_buffer.safe_append='<!-- END #{template.short_identifier} -->';@output_buffer"
+          end
+
+          self.class.erb_implementation.new(erb, options).src
         end
 
       private
-
         def valid_encoding(string, encoding)
           # If a magic encoding comment was found, tag the
           # String with this encoding. This is for a case
@@ -156,6 +103,53 @@ module ActionView
 
           # Otherwise, raise an exception
           raise WrongEncodingError.new(string, string.encoding)
+        end
+
+        def find_offset(compiled, source_tokens, error_column)
+          compiled = StringScanner.new(compiled)
+
+          passed_tokens = []
+
+          while tok = source_tokens.shift
+            tok_name, str = *tok
+            case tok_name
+            when :TEXT
+              loop do
+                break if compiled.match?(str)
+                compiled.getch
+              end
+              raise LocationParsingError unless compiled.scan(str)
+            when :CODE
+              if compiled.pos > error_column
+                raise LocationParsingError, "We went too far"
+              end
+
+              if compiled.pos + str.bytesize >= error_column
+                offset = error_column - compiled.pos
+                return passed_tokens.map(&:last).join.bytesize + offset
+              else
+                unless compiled.scan(str)
+                  raise LocationParsingError, "Couldn't find code snippet"
+                end
+              end
+            when :OPEN
+              next_tok = source_tokens.first.last
+              loop do
+                break if compiled.match?(next_tok)
+                compiled.getch
+              end
+            when :CLOSE
+              next_tok = source_tokens.first.last
+              loop do
+                break if compiled.match?(next_tok)
+                compiled.getch
+              end
+            else
+              raise LocationParsingError, "Not implemented: #{tok.first}"
+            end
+
+            passed_tokens << tok
+          end
         end
       end
     end

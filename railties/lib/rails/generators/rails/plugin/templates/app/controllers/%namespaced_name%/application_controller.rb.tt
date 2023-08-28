@@ -1,5 +1,5 @@
-<%= wrap_in_modules <<-rb.strip_heredoc
-  class ApplicationController < ActionController::Base
+<%= wrap_in_modules <<~rb
+  class ApplicationController < ActionController::#{api? ? "API" : "Base"}
   end
 rb
 %>

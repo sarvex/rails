@@ -1,12 +1,12 @@
+# frozen_string_literal: true
+
 module ActionDispatch
   module Http
     module FilterRedirect
-
-      FILTERED = '[FILTERED]'.freeze # :nodoc:
+      FILTERED = "[FILTERED]" # :nodoc:
 
       def filtered_location # :nodoc:
-        filters = location_filter
-        if !filters.empty? && location_filter_match?(filters)
+        if location_filter_match?
           FILTERED
         else
           location
@@ -14,25 +14,23 @@ module ActionDispatch
       end
 
     private
-
-      def location_filter
+      def location_filters
         if request
-          request.env['action_dispatch.redirect_filter'] || []
+          request.get_header("action_dispatch.redirect_filter") || []
         else
           []
         end
       end
 
-      def location_filter_match?(filters)
-        filters.any? do |filter|
+      def location_filter_match?
+        location_filters.any? do |filter|
           if String === filter
             location.include?(filter)
           elsif Regexp === filter
-            location.match(filter)
+            location.match?(filter)
           end
         end
       end
-
     end
   end
 end

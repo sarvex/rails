@@ -1,5 +1,7 @@
-require 'abstract_unit'
-require 'controller/fake_models'
+# frozen_string_literal: true
+
+require "abstract_unit"
+require "controller/fake_models"
 
 class RecordIdentifierTest < ActiveSupport::TestCase
   include ActionView::RecordIdentifier
@@ -7,8 +9,12 @@ class RecordIdentifierTest < ActiveSupport::TestCase
   def setup
     @klass  = Comment
     @record = @klass.new
-    @singular = 'comment'
-    @plural = 'comments'
+    @singular = "comment"
+    @plural = "comments"
+  end
+
+  def test_dom_id_with_class
+    assert_equal "new_#{@singular}", dom_id(@klass)
   end
 
   def test_dom_id_with_new_record
@@ -22,6 +28,11 @@ class RecordIdentifierTest < ActiveSupport::TestCase
   def test_dom_id_with_saved_record
     @record.save
     assert_equal "#{@singular}_1", dom_id(@record)
+  end
+
+  def test_dom_id_with_composite_primary_key_record
+    record = CompositePrimaryKeyRecord.new([1, 123])
+    assert_equal("composite_primary_key_record_1_123", dom_id(record))
   end
 
   def test_dom_id_with_prefix
@@ -51,7 +62,12 @@ class RecordIdentifierWithoutActiveModelTest < ActiveSupport::TestCase
   include ActionView::RecordIdentifier
 
   def setup
-    @record = Plane.new
+    @klass = Plane
+    @record = @klass.new
+  end
+
+  def test_dom_id_with_new_class
+    assert_equal "new_airplane", dom_id(@klass)
   end
 
   def test_dom_id_with_new_record
@@ -72,8 +88,14 @@ class RecordIdentifierWithoutActiveModelTest < ActiveSupport::TestCase
     assert_equal "edit_airplane_1", dom_id(@record, :edit)
   end
 
+  def test_dom_id_raises_useful_error_when_passed_nil
+    assert_raises ArgumentError do
+      ActionView::RecordIdentifier.dom_id(nil)
+    end
+  end
+
   def test_dom_class
-    assert_equal 'airplane', dom_class(@record)
+    assert_equal "airplane", dom_class(@record)
   end
 
   def test_dom_class_with_prefix
@@ -86,6 +108,6 @@ class RecordIdentifierWithoutActiveModelTest < ActiveSupport::TestCase
   end
 
   def test_dom_class_as_singleton_method
-    assert_equal 'airplane', ActionView::RecordIdentifier.dom_class(@record)
+    assert_equal "airplane", ActionView::RecordIdentifier.dom_class(@record)
   end
 end

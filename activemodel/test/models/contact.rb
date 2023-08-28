@@ -1,10 +1,11 @@
+# frozen_string_literal: true
+
 class Contact
   extend ActiveModel::Naming
   include ActiveModel::Conversion
   include ActiveModel::Validations
 
   include ActiveModel::Serializers::JSON
-  include ActiveModel::Serializers::Xml
 
   attr_accessor :id, :name, :age, :created_at, :awesome, :preferences
   attr_accessor :address, :friends, :contact
@@ -18,7 +19,7 @@ class Contact
   end
 
   def initialize(options = {})
-    options.each { |name, value| send("#{name}=", value) }
+    options.each { |name, value| public_send("#{name}=", value) }
   end
 
   def pseudonyms

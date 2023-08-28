@@ -1,11 +1,24 @@
+# frozen_string_literal: true
+
 task "load_app" do
   namespace :app do
     load APP_RAKEFILE
-  end
-  task :environment => "app:environment"
 
-  if !defined?(ENGINE_PATH) || !ENGINE_PATH
-    ENGINE_PATH = find_engine_path(APP_RAKEFILE)
+    desc "Update some initially generated files"
+    task update: [ "update:bin" ]
+
+    namespace :update do
+      require "rails/engine/updater"
+      # desc "Adds new executables to the engine bin/ directory"
+      task :bin do
+        Rails::Engine::Updater.run(:create_bin_files)
+      end
+    end
+  end
+  task environment: "app:environment"
+
+  if !defined?(ENGINE_ROOT) || !ENGINE_ROOT
+    ENGINE_ROOT = find_engine_path(Pathname.new(APP_RAKEFILE))
   end
 end
 
@@ -26,21 +39,21 @@ namespace :db do
   desc "Display status of migrations"
   app_task "migrate:status"
 
-  desc 'Create the database from config/database.yml for the current Rails.env (use db:create:all to create all databases in the config)'
+  desc "Create the database from config/database.yml for the current Rails.env (use db:create:all to create all databases in the config)"
   app_task "create"
   app_task "create:all"
 
-  desc 'Drops the database for the current Rails.env (use db:drop:all to drop all databases)'
+  desc "Drop the database for the current Rails.env (use db:drop:all to drop all databases)"
   app_task "drop"
   app_task "drop:all"
 
   desc "Load fixtures into the current environment's database."
   app_task "fixtures:load"
 
-  desc "Rolls the schema back to the previous version (specify steps w/ STEP=n)."
+  desc "Roll the schema back to the previous version (specify steps w/ STEP=n)."
   app_task "rollback"
 
-  desc "Create a db/schema.rb file that can be portably used against any DB supported by AR"
+  desc "Create a database schema file (either db/schema.rb or db/structure.sql, depending on `config.active_record.schema_format`)"
   app_task "schema:dump"
 
   desc "Load a schema.rb file into the database"
@@ -49,23 +62,23 @@ namespace :db do
   desc "Load the seed data from db/seeds.rb"
   app_task "seed"
 
-  desc "Create the database, load the schema, and initialize with the seed data (use db:reset to also drop the db first)"
+  desc "Create the database, load the schema, and initialize with the seed data (use db:reset to also drop the database first)"
   app_task "setup"
 
-  desc "Dump the database structure to an SQL file"
-  app_task "structure:dump"
-
-  desc "Retrieves the current schema version number"
+  desc "Retrieve the current schema version number"
   app_task "version"
+
+  # desc 'Load the test schema'
+  app_task "test:prepare"
 end
 
 def find_engine_path(path)
-  return File.expand_path(Dir.pwd) if path == "/"
+  return File.expand_path(Dir.pwd) if path.root?
 
   if Rails::Engine.find(path)
-    path
+    path.to_s
   else
-    find_engine_path(File.expand_path('..', path))
+    find_engine_path(path.join(".."))
   end
 end
 

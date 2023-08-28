@@ -1,14 +1,23 @@
-# Activate the gem you are reporting the issue against.
-gem 'activerecord', '4.2.0'
-require 'active_record'
-require 'minitest/autorun'
-require 'logger'
+# frozen_string_literal: true
 
-# Ensure backward compatibility with Minitest 4
-Minitest::Test = MiniTest::Unit::TestCase unless defined?(Minitest::Test)
+require "bundler/inline"
+
+gemfile(true) do
+  source "https://rubygems.org"
+
+  git_source(:github) { |repo| "https://github.com/#{repo}.git" }
+
+  # Activate the gem you are reporting the issue against.
+  gem "activerecord", "~> 7.0.0"
+  gem "sqlite3"
+end
+
+require "active_record"
+require "minitest/autorun"
+require "logger"
 
 # This connection will do for database-independent bug reports.
-ActiveRecord::Base.establish_connection(adapter: 'sqlite3', database: ':memory:')
+ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: ":memory:")
 ActiveRecord::Base.logger = Logger.new(STDOUT)
 
 ActiveRecord::Schema.define do

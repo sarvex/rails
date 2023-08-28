@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 #--
-# Copyright (c) 2004-2015 David Heinemeier Hansson
+# Copyright (c) David Heinemeier Hansson
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -21,10 +23,12 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #++
 
-require 'active_support'
-require 'active_support/rails'
-require 'action_view/version'
+require "active_support"
+require "active_support/rails"
+require "action_view/version"
+require "action_view/deprecator"
 
+# :include: actionview/README.rdoc
 module ActionView
   extend ActiveSupport::Autoload
 
@@ -33,31 +37,34 @@ module ActionView
   eager_autoload do
     autoload :Base
     autoload :Context
-    autoload :CompiledTemplates, "action_view/context"
     autoload :Digestor
     autoload :Helpers
     autoload :LookupContext
     autoload :Layouts
+    autoload :PathRegistry
     autoload :PathSet
     autoload :RecordIdentifier
     autoload :Rendering
     autoload :RoutingUrlFor
     autoload :Template
+    autoload :TemplateDetails
+    autoload :TemplatePath
+    autoload :UnboundTemplate
     autoload :ViewPaths
 
     autoload_under "renderer" do
       autoload :Renderer
       autoload :AbstractRenderer
       autoload :PartialRenderer
+      autoload :CollectionRenderer
+      autoload :ObjectRenderer
       autoload :TemplateRenderer
       autoload :StreamingTemplateRenderer
     end
 
     autoload_at "action_view/template/resolver" do
       autoload :Resolver
-      autoload :PathResolver
-      autoload :OptimizedFileSystemResolver
-      autoload :FallbackFileSystemResolver
+      autoload :FileSystemResolver
     end
 
     autoload_at "action_view/buffers" do
@@ -74,12 +81,13 @@ module ActionView
       autoload :MissingTemplate
       autoload :ActionViewError
       autoload :EncodingError
-      autoload :MissingRequestError
       autoload :TemplateError
+      autoload :SyntaxErrorInTemplate
       autoload :WrongEncodingError
     end
   end
 
+  autoload :CacheExpiry
   autoload :TestCase
 
   def self.eager_load!
@@ -89,8 +97,8 @@ module ActionView
   end
 end
 
-require 'active_support/core_ext/string/output_safety'
+require "active_support/core_ext/string/output_safety"
 
 ActiveSupport.on_load(:i18n) do
-  I18n.load_path << "#{File.dirname(__FILE__)}/action_view/locale/en.yml"
+  I18n.load_path << File.expand_path("action_view/locale/en.yml", __dir__)
 end

@@ -1,43 +1,67 @@
-require 'active_support/core_ext/module/aliasing'
-require 'active_support/core_ext/array/extract_options'
+# frozen_string_literal: true
+
+require "active_support/core_ext/array/extract_options"
+require "active_support/core_ext/module/redefine_method"
 
 module ActiveSupport
   class Deprecation
     module MethodWrapper
       # Declare that a method has been deprecated.
       #
-      #   module Fred
-      #     extend self
-      #
-      #     def foo; end
-      #     def bar; end
-      #     def baz; end
+      #   class Fred
+      #     def aaa; end
+      #     def bbb; end
+      #     def ccc; end
+      #     def ddd; end
+      #     def eee; end
       #   end
       #
-      #   ActiveSupport::Deprecation.deprecate_methods(Fred, :foo, bar: :qux, baz: 'use Bar#baz instead')
-      #   # => [:foo, :bar, :baz]
+      #   deprecator = ActiveSupport::Deprecation.new('next-release', 'MyGem')
       #
-      #   Fred.foo
-      #   # => "DEPRECATION WARNING: foo is deprecated and will be removed from Rails 4.1."
+      #   deprecator.deprecate_methods(Fred, :aaa, bbb: :zzz, ccc: 'use Bar#ccc instead')
+      #   # => Fred
       #
-      #   Fred.bar
-      #   # => "DEPRECATION WARNING: bar is deprecated and will be removed from Rails 4.1 (use qux instead)."
+      #   Fred.new.aaa
+      #   # DEPRECATION WARNING: aaa is deprecated and will be removed from MyGem next-release. (called from irb_binding at (irb):10)
+      #   # => nil
       #
-      #   Fred.baz
-      #   # => "DEPRECATION WARNING: baz is deprecated and will be removed from Rails 4.1 (use Bar#baz instead)."
+      #   Fred.new.bbb
+      #   # DEPRECATION WARNING: bbb is deprecated and will be removed from MyGem next-release (use zzz instead). (called from irb_binding at (irb):11)
+      #   # => nil
+      #
+      #   Fred.new.ccc
+      #   # DEPRECATION WARNING: ccc is deprecated and will be removed from MyGem next-release (use Bar#ccc instead). (called from irb_binding at (irb):12)
+      #   # => nil
       def deprecate_methods(target_module, *method_names)
         options = method_names.extract_options!
-        deprecator = options.delete(:deprecator) || ActiveSupport::Deprecation.instance
+        deprecator = options.delete(:deprecator) || self
         method_names += options.keys
+        mod = nil
 
         method_names.each do |method_name|
-          target_module.alias_method_chain(method_name, :deprecation) do |target, punctuation|
-            target_module.send(:define_method, "#{target}_with_deprecation#{punctuation}") do |*args, &block|
-              deprecator.deprecation_warning(method_name, options[method_name])
-              send(:"#{target}_without_deprecation#{punctuation}", *args, &block)
+          message = options[method_name]
+          if target_module.method_defined?(method_name) || target_module.private_method_defined?(method_name)
+            method = target_module.instance_method(method_name)
+            target_module.module_eval do
+              redefine_method(method_name) do |*args, &block|
+                deprecator.deprecation_warning(method_name, message)
+                method.bind_call(self, *args, &block)
+              end
+              ruby2_keywords(method_name)
+            end
+          else
+            mod ||= Module.new
+            mod.module_eval do
+              define_method(method_name) do |*args, &block|
+                deprecator.deprecation_warning(method_name, message)
+                super(*args, &block)
+              end
+              ruby2_keywords(method_name)
             end
           end
         end
+
+        target_module.prepend(mod) if mod
       end
     end
   end

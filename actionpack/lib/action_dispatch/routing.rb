@@ -1,7 +1,4 @@
-# encoding: UTF-8
-require 'active_support/core_ext/object/to_param'
-require 'active_support/core_ext/regexp'
-require 'active_support/dependencies/autoload'
+# frozen_string_literal: true
 
 module ActionDispatch
   # The routing module provides URL rewriting in native Ruby. It's a way to
@@ -29,7 +26,7 @@ module ActionDispatch
   #
   # Resource routing allows you to quickly declare all of the common routes
   # for a given resourceful controller. Instead of declaring separate routes
-  # for your +index+, +show+, +new+, +edit+, +create+, +update+ and +destroy+
+  # for your +index+, +show+, +new+, +edit+, +create+, +update+, and +destroy+
   # actions, a resourceful route declares them in a single line of code:
   #
   #  resources :photos
@@ -58,7 +55,7 @@ module ActionDispatch
   #     resources :posts, :comments
   #   end
   #
-  # Alternately, you can add prefixes to your path without using a separate
+  # Alternatively, you can add prefixes to your path without using a separate
   # directory by using +scope+. +scope+ takes additional options which
   # apply to all enclosed routes.
   #
@@ -66,25 +63,24 @@ module ActionDispatch
   #     resources :posts, :comments
   #   end
   #
-  # For more, see <tt>Routing::Mapper::Resources#resources</tt>,
-  # <tt>Routing::Mapper::Scoping#namespace</tt>, and
-  # <tt>Routing::Mapper::Scoping#scope</tt>.
+  # For more, see Routing::Mapper::Resources#resources,
+  # Routing::Mapper::Scoping#namespace, and Routing::Mapper::Scoping#scope.
   #
   # == Non-resourceful routes
   #
   # For routes that don't fit the <tt>resources</tt> mold, you can use the HTTP helper
   # methods <tt>get</tt>, <tt>post</tt>, <tt>patch</tt>, <tt>put</tt> and <tt>delete</tt>.
   #
-  #   get 'post/:id' => 'posts#show'
-  #   post 'post/:id' => 'posts#create_comment'
+  #   get 'post/:id', to: 'posts#show'
+  #   post 'post/:id', to: 'posts#create_comment'
+  #
+  # Now, if you POST to <tt>/posts/:id</tt>, it will route to the <tt>create_comment</tt> action. A GET on the same
+  # URL will route to the <tt>show</tt> action.
   #
   # If your route needs to respond to more than one HTTP method (or all methods) then using the
   # <tt>:via</tt> option on <tt>match</tt> is preferable.
   #
-  #   match 'post/:id' => 'posts#show', via: [:get, :post]
-  #
-  # Now, if you POST to <tt>/posts/:id</tt>, it will route to the <tt>create_comment</tt> action. A GET on the same
-  # URL will route to the <tt>show</tt> action.
+  #   match 'post/:id', to: 'posts#show', via: [:get, :post]
   #
   # == Named routes
   #
@@ -94,8 +90,8 @@ module ActionDispatch
   #
   # Example:
   #
-  #   # In routes.rb
-  #   get '/login' => 'accounts#login', as: 'login'
+  #   # In config/routes.rb
+  #   get '/login', to: 'accounts#login', as: 'login'
   #
   #   # With render, redirect_to, tests, etc.
   #   redirect_to login_url
@@ -106,7 +102,7 @@ module ActionDispatch
   #
   # Use <tt>root</tt> as a shorthand to name a route for the root path "/".
   #
-  #   # In routes.rb
+  #   # In config/routes.rb
   #   root to: 'blogs#index'
   #
   #   # would recognize http://www.example.com/ as
@@ -119,21 +115,21 @@ module ActionDispatch
   # Note: when using +controller+, the route is simply named after the
   # method you call on the block parameter rather than map.
   #
-  #   # In routes.rb
+  #   # In config/routes.rb
   #   controller :blog do
-  #     get 'blog/show'     => :list
-  #     get 'blog/delete'   => :delete
-  #     get 'blog/edit/:id' => :edit
+  #     get 'blog/show',    to: :list
+  #     get 'blog/delete',  to: :delete
+  #     get 'blog/edit',    to: :edit
   #   end
   #
   #   # provides named routes for show, delete, and edit
-  #   link_to @article.title, show_path(id: @article.id)
+  #   link_to @article.title, blog_show_path(id: @article.id)
   #
   # == Pretty URLs
   #
   # Routes can generate pretty URLs. For example:
   #
-  #   get '/articles/:year/:month/:day' => 'articles#find_by_id', constraints: {
+  #   get '/articles/:year/:month/:day', to: 'articles#find_by_id', constraints: {
   #     year:       /\d{4}/,
   #     month:      /\d{1,2}/,
   #     day:        /\d{1,2}/
@@ -148,22 +144,23 @@ module ActionDispatch
   # You can specify a regular expression to define a format for a parameter.
   #
   #   controller 'geocode' do
-  #     get 'geocode/:postalcode' => :show, constraints: {
+  #     get 'geocode/:postalcode', to: :show, constraints: {
   #       postalcode: /\d{5}(-\d{4})?/
   #     }
+  #   end
   #
   # Constraints can include the 'ignorecase' and 'extended syntax' regular
   # expression modifiers:
   #
   #   controller 'geocode' do
-  #     get 'geocode/:postalcode' => :show, constraints: {
+  #     get 'geocode/:postalcode', to: :show, constraints: {
   #       postalcode: /hx\d\d\s\d[a-z]{2}/i
   #     }
   #   end
   #
   #   controller 'geocode' do
-  #     get 'geocode/:postalcode' => :show, constraints: {
-  #       postalcode: /# Postcode format
+  #     get 'geocode/:postalcode', to: :show, constraints: {
+  #       postalcode: /# Postalcode format
   #          \d{5} #Prefix
   #          (-\d{4})? #Suffix
   #          /x
@@ -178,13 +175,13 @@ module ActionDispatch
   #
   # You can redirect any path to another path using the redirect helper in your router:
   #
-  #   get "/stories" => redirect("/posts")
+  #   get "/stories", to: redirect("/posts")
   #
   # == Unicode character routes
   #
   # You can specify unicode character routes in your router:
   #
-  #   get "こんにちは" => "welcome#index"
+  #   get "こんにちは", to: "welcome#index"
   #
   # == Routing to Rack Applications
   #
@@ -192,7 +189,7 @@ module ActionDispatch
   # index action in the PostsController, you can specify any Rack application
   # as the endpoint for a matcher:
   #
-  #   get "/application.js" => Sprockets
+  #   get "/application.js", to: Sprockets
   #
   # == Reloading routes
   #
@@ -200,7 +197,7 @@ module ActionDispatch
   #
   #   Rails.application.reload_routes!
   #
-  # This will clear all named routes and reload routes.rb if the file has been modified from
+  # This will clear all named routes and reload config/routes.rb if the file has been modified from
   # last load. To absolutely force reloading, use <tt>reload!</tt>.
   #
   # == Testing Routes
@@ -210,8 +207,8 @@ module ActionDispatch
   # === +assert_routing+
   #
   #   def test_movie_route_properly_splits
-  #    opts = {controller: "plugin", action: "checkout", id: "2"}
-  #    assert_routing "plugin/checkout/2", opts
+  #     opts = {controller: "plugin", action: "checkout", id: "2"}
+  #     assert_routing "plugin/checkout/2", opts
   #   end
   #
   # +assert_routing+ lets you test whether or not the route properly resolves into options.
@@ -219,8 +216,8 @@ module ActionDispatch
   # === +assert_recognizes+
   #
   #   def test_route_has_options
-  #    opts = {controller: "plugin", action: "show", id: "12"}
-  #    assert_recognizes opts, "/plugins/show/12"
+  #     opts = {controller: "plugin", action: "show", id: "12"}
+  #     assert_recognizes opts, "/plugins/show/12"
   #   end
   #
   # Note the subtle difference between the two: +assert_routing+ tests that
@@ -232,7 +229,6 @@ module ActionDispatch
   #   def send_to_jail
   #     get '/jail'
   #     assert_response :success
-  #     assert_template "jail/front"
   #   end
   #
   #   def goes_to_login
@@ -242,20 +238,23 @@ module ActionDispatch
   #
   # == View a list of all your routes
   #
-  #   rake routes
+  #   bin/rails routes
   #
-  # Target specific controllers by prefixing the command with <tt>CONTROLLER=x</tt>.
-  #
+  # Target a specific controller with <tt>-c</tt>, or grep routes
+  # using <tt>-g</tt>. Useful in conjunction with <tt>--expanded</tt>
+  # which displays routes vertically.
   module Routing
     extend ActiveSupport::Autoload
 
     autoload :Mapper
     autoload :RouteSet
-    autoload :RoutesProxy
+    eager_autoload do
+      autoload :RoutesProxy
+    end
     autoload :UrlFor
     autoload :PolymorphicRoutes
 
-    SEPARATORS = %w( / . ? ) #:nodoc:
-    HTTP_METHODS = [:get, :head, :post, :patch, :put, :delete, :options] #:nodoc:
+    SEPARATORS = %w( / . ? ) # :nodoc:
+    HTTP_METHODS = [:get, :head, :post, :patch, :put, :delete, :options] # :nodoc:
   end
 end

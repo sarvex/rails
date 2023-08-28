@@ -1,15 +1,10 @@
-require 'active_support/core_ext/hash/keys'
+# frozen_string_literal: true
+
+require "active_support/core_ext/hash/keys"
 
 module ActionDispatch
-  class Request < Rack::Request
-    # Access the contents of the flash. Use <tt>flash["notice"]</tt> to
-    # read a notice you put there or <tt>flash["notice"] = "hello"</tt>
-    # to put a new one.
-    def flash
-      @env[Flash::KEY] ||= Flash::FlashHash.from_session_value(session["flash"])
-    end
-  end
-
+  # = Action Dispatch \Flash
+  #
   # The flash provides a way to pass temporary primitive-types (String, Array, Hash) between actions. Anything you place in the flash will be exposed
   # to the very next action and then cleared out. This is a great way of doing notices and alerts, such as a create
   # action that sets <tt>flash[:notice] = "Post successfully created"</tt> before redirecting to a display action that can
@@ -27,10 +22,11 @@ module ActionDispatch
   #     end
   #   end
   #
-  #   show.html.erb
-  #     <% if flash[:notice] %>
-  #       <div class="notice"><%= flash[:notice] %></div>
-  #     <% end %>
+  # Then in +show.html.erb+:
+  #
+  #   <% if flash[:notice] %>
+  #     <div class="notice"><%= flash[:notice] %></div>
+  #   <% end %>
   #
   # Since the +notice+ and +alert+ keys are a common idiom, convenience accessors are available:
   #
@@ -45,9 +41,46 @@ module ActionDispatch
   #
   # See docs on the FlashHash class for more details about the flash.
   class Flash
-    KEY = 'action_dispatch.request.flash_hash'.freeze
+    KEY = "action_dispatch.request.flash_hash"
 
-    class FlashNow #:nodoc:
+    module RequestMethods
+      # Access the contents of the flash. Returns a ActionDispatch::Flash::FlashHash.
+      #
+      # See ActionDispatch::Flash for example usage.
+      def flash
+        flash = flash_hash
+        return flash if flash
+        self.flash = Flash::FlashHash.from_session_value(session["flash"])
+      end
+
+      def flash=(flash)
+        set_header Flash::KEY, flash
+      end
+
+      def flash_hash # :nodoc:
+        get_header Flash::KEY
+      end
+
+      def commit_flash # :nodoc:
+        return unless session.enabled?
+
+        if flash_hash && (flash_hash.present? || session.key?("flash"))
+          session["flash"] = flash_hash.to_session_value
+          self.flash = flash_hash.dup
+        end
+
+        if session.loaded? && session.key?("flash") && session["flash"].nil?
+          session.delete("flash")
+        end
+      end
+
+      def reset_session # :nodoc:
+        super
+        self.flash = nil
+      end
+    end
+
+    class FlashNow # :nodoc:
       attr_accessor :flash
 
       def initialize(flash)
@@ -79,7 +112,7 @@ module ActionDispatch
     class FlashHash
       include Enumerable
 
-      def self.from_session_value(value) #:nodoc:
+      def self.from_session_value(value) # :nodoc:
         case value
         when FlashHash # Rails 3.1, 3.2
           flashes = value.instance_variable_get(:@flashes)
@@ -88,8 +121,8 @@ module ActionDispatch
           end
           new(flashes, flashes.keys)
         when Hash # Rails 4.0
-          flashes = value['flashes']
-          if discard = value['discard']
+          flashes = value["flashes"]
+          if discard = value["discard"]
             flashes.except!(*discard)
           end
           new(flashes, flashes.keys)
@@ -99,14 +132,14 @@ module ActionDispatch
       end
 
       # Builds a hash containing the flashes to keep for the next request.
-      # If there are none to keep, returns nil.
-      def to_session_value #:nodoc:
+      # If there are none to keep, returns +nil+.
+      def to_session_value # :nodoc:
         flashes_to_keep = @flashes.except(*@discard)
         return nil if flashes_to_keep.empty?
-        {'flashes' => flashes_to_keep}
+        { "discard" => [], "flashes" => flashes_to_keep }
       end
 
-      def initialize(flashes = {}, discard = []) #:nodoc:
+      def initialize(flashes = {}, discard = []) # :nodoc:
         @discard = Set.new(stringify_array(discard))
         @flashes = flashes.stringify_keys
         @now     = nil
@@ -130,7 +163,7 @@ module ActionDispatch
         @flashes[k.to_s]
       end
 
-      def update(h) #:nodoc:
+      def update(h) # :nodoc:
         @discard.subtract stringify_array(h.keys)
         @flashes.update h.stringify_keys
         self
@@ -144,6 +177,8 @@ module ActionDispatch
         @flashes.key? name.to_s
       end
 
+      # Immediately deletes the single flash entry. Use this method when you
+      # want remove the message within the current action. See also #discard.
       def delete(key)
         key = key.to_s
         @discard.delete key
@@ -170,7 +205,7 @@ module ActionDispatch
 
       alias :merge! :update
 
-      def replace(h) #:nodoc:
+      def replace(h) # :nodoc:
         @discard.clear
         @flashes.replace h.stringify_keys
         self
@@ -212,6 +247,9 @@ module ActionDispatch
       #
       #     flash.discard              # discard the entire flash at the end of the current action
       #     flash.discard(:warning)    # discard only the "warning" entry at the end of the current action
+      #
+      # Use this method when you want to display the message in the current
+      # action but not in the next one. See also #delete.
       def discard(k = nil)
         k = k.to_s if k
         @discard.merge Array(k || keys)
@@ -221,7 +259,7 @@ module ActionDispatch
       # Mark for removal entries that were kept, and delete unkept ones.
       #
       # This method is called automatically by filters, so you generally don't need to care about it.
-      def sweep #:nodoc:
+      def sweep # :nodoc:
         @discard.each { |k| @flashes.delete k }
         @discard.replace @flashes.keys
       end
@@ -247,36 +285,22 @@ module ActionDispatch
       end
 
       protected
-      def now_is_loaded?
-        @now
-      end
-
-      def stringify_array(array)
-        array.map do |item|
-          item.kind_of?(Symbol) ? item.to_s : item
+        def now_is_loaded?
+          @now
         end
-      end
+
+      private
+        def stringify_array(array) # :doc:
+          array.map do |item|
+            item.kind_of?(Symbol) ? item.to_s : item
+          end
+        end
     end
 
-    def initialize(app)
-      @app = app
-    end
+    def self.new(app) app; end
+  end
 
-    def call(env)
-      @app.call(env)
-    ensure
-      session    = Request::Session.find(env) || {}
-      flash_hash = env[KEY]
-
-      if flash_hash && (flash_hash.present? || session.key?('flash'))
-        session["flash"] = flash_hash.to_session_value
-        env[KEY] = flash_hash.dup
-      end
-
-      if (!session.respond_to?(:loaded?) || session.loaded?) && # (reset_session uses {}, which doesn't implement #loaded?)
-        session.key?('flash') && session['flash'].nil?
-        session.delete('flash')
-      end
-    end
+  class Request
+    prepend Flash::RequestMethods
   end
 end

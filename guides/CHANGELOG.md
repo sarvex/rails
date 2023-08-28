@@ -1,13 +1,5 @@
-*   New section in Active Record Association Basics: Single Table Inheritance
+*   Add "back to top" button to guides
 
-    *Andrey Nering*
+    *Alysson Rosa*
 
-*   New section in Active Record Querying: Understanding The Method Chaining
-
-    *Andrey Nering*
-
-*   New section in Configuring: Search Engines Indexing
-
-    *Andrey Nering*
-
-Please check [4-2-stable](https://github.com/rails/rails/blob/4-2-stable/guides/CHANGELOG.md) for previous changes.
+Please check [7-0-stable](https://github.com/rails/rails/blob/7-0-stable/guides/CHANGELOG.md) for previous changes.

@@ -1,12 +1,21 @@
-require 'abstract_controller/collector'
+# frozen_string_literal: true
 
-module ActionController #:nodoc:
+require "abstract_controller/collector"
+
+module ActionController # :nodoc:
   module MimeResponds
     # Without web-service support, an action which collects the data for displaying a list of people
     # might look something like this:
     #
     #   def index
     #     @people = Person.all
+    #   end
+    #
+    # That action implicitly responds to all formats, but formats can also be explicitly enumerated:
+    #
+    #   def index
+    #     @people = Person.all
+    #     respond_to :html, :js
     #   end
     #
     # Here's the same action, with web-service support baked in:
@@ -16,13 +25,14 @@ module ActionController #:nodoc:
     #
     #     respond_to do |format|
     #       format.html
+    #       format.js
     #       format.xml { render xml: @people }
     #     end
     #   end
     #
-    # What that says is, "if the client wants HTML in response to this action, just respond as we
+    # What that says is, "if the client wants HTML or JS in response to this action, just respond as we
     # would have before, but if the client wants XML, return them the list of people in XML format."
-    # (Rails determines the desired response format from the HTTP Accept header submitted by the client.)
+    # (\Rails determines the desired response format from the HTTP Accept header submitted by the client.)
     #
     # Supposing you have an action that adds a new person, optionally creating their company
     # (by name) if it does not already exist, without web-services, it might look like this:
@@ -88,14 +98,14 @@ module ActionController #:nodoc:
     #
     # Note that you can define your own XML parameter parser which would allow you to describe multiple entities
     # in a single request (i.e., by wrapping them all in a single root node), but if you just go with the flow
-    # and accept Rails' defaults, life will be much easier.
+    # and accept \Rails' defaults, life will be much easier.
     #
     # If you need to use a MIME type which isn't supported by default, you can register your own handlers in
-    # config/initializers/mime_types.rb as follows.
+    # +config/initializers/mime_types.rb+ as follows.
     #
-    #   Mime::Type.register "image/jpg", :jpg
+    #   Mime::Type.register "image/jpeg", :jpg
     #
-    # Respond to also allows you to specify a common block for different formats by using any:
+    # +respond_to+ also allows you to specify a common block for different formats by using +any+:
     #
     #   def index
     #     @people = Person.all
@@ -114,6 +124,14 @@ module ActionController #:nodoc:
     #
     #   render json: @people
     #
+    # +any+ can also be used with no arguments, in which case it will be used for any format requested by
+    # the user:
+    #
+    #   respond_to do |format|
+    #     format.html
+    #     format.any { redirect_to support_path }
+    #   end
+    #
     # Formats can have different variants.
     #
     # The request variant is a specialization of the request format, like <tt>:tablet</tt>,
@@ -124,7 +142,7 @@ module ActionController #:nodoc:
     #
     # You can set the variant in a +before_action+:
     #
-    #   request.variant = :tablet if request.user_agent =~ /iPad/
+    #   request.variant = :tablet if /iPad/.match?(request.user_agent)
     #
     # Respond to variants in the action just like you respond to formats:
     #
@@ -151,21 +169,21 @@ module ActionController #:nodoc:
     #     format.html.none  { render "trash" }
     #   end
     #
-    # Variants also support common `any`/`all` block that formats have.
+    # Variants also support common +any+/+all+ block that formats have.
     #
     # It works for both inline:
     #
     #   respond_to do |format|
-    #     format.html.any   { render text: "any"   }
-    #     format.html.phone { render text: "phone" }
+    #     format.html.any   { render html: "any"   }
+    #     format.html.phone { render html: "phone" }
     #   end
     #
     # and block syntax:
     #
     #   respond_to do |format|
     #     format.html do |variant|
-    #       variant.any(:tablet, :phablet){ render text: "any" }
-    #       variant.phone { render text: "phone" }
+    #       variant.any(:tablet, :phablet){ render html: "any" }
+    #       variant.phone { render html: "phone" }
     #     end
     #   end
     #
@@ -173,16 +191,13 @@ module ActionController #:nodoc:
     #
     #   request.variant = [:tablet, :phone]
     #
-    # which will work similarly to formats and MIME types negotiation. If there will be no
-    # :tablet variant declared, :phone variant will be picked:
+    # This will work similarly to formats and MIME types negotiation. If there
+    # is no +:tablet+ variant declared, the +:phone+ variant will be used:
     #
     #   respond_to do |format|
     #     format.html.none
     #     format.html.phone # this gets rendered
     #   end
-    #
-    # Be sure to check the documentation of <tt>ActionController::MimeResponds.respond_to</tt>
-    # for more examples.
     def respond_to(*mimes)
       raise ArgumentError, "respond_to takes either types or a block, never both" if mimes.any? && block_given?
 
@@ -190,9 +205,13 @@ module ActionController #:nodoc:
       yield collector if block_given?
 
       if format = collector.negotiate_format(request)
+        if media_type && media_type != format
+          raise ActionController::RespondToMismatchError
+        end
         _process_format(format)
+        _set_rendered_content_type(format) unless collector.any_response?
         response = collector.response
-        response ? response.call : render({})
+        response.call if response
       else
         raise ActionController::UnknownFormat
       end
@@ -228,7 +247,7 @@ module ActionController #:nodoc:
         @responses = {}
         @variant = variant
 
-        mimes.each { |mime| @responses["Mime::#{mime.upcase}".constantize] = nil }
+        mimes.each { |mime| @responses[Mime[mime]] = nil }
       end
 
       def any(*args, &block)
@@ -249,6 +268,10 @@ module ActionController #:nodoc:
         end
       end
 
+      def any_response?
+        !@responses.fetch(format, false) && @responses[Mime::ALL]
+      end
+
       def response
         response = @responses.fetch(format, @responses[Mime::ALL])
         if response.is_a?(VariantCollector) # `format.html.phone` - variant inline syntax
@@ -266,7 +289,7 @@ module ActionController #:nodoc:
         @format = request.negotiate_mime(@responses.keys)
       end
 
-      class VariantCollector #:nodoc:
+      class VariantCollector # :nodoc:
         def initialize(variant = nil)
           @variant = variant
           @variants = {}
@@ -274,8 +297,8 @@ module ActionController #:nodoc:
 
         def any(*args, &block)
           if block_given?
-            if args.any? && args.none?{ |a| a == @variant }
-              args.each{ |v| @variants[v] = block }
+            if args.any? && args.none? { |a| a == @variant }
+              args.each { |v| @variants[v] = block }
             else
               @variants[:any] = block
             end
@@ -288,16 +311,17 @@ module ActionController #:nodoc:
         end
 
         def variant
-          if @variant.nil?
+          if @variant.empty?
             @variants[:none] || @variants[:any]
-          elsif (@variants.keys & @variant).any?
-            @variant.each do |v|
-              return @variants[v] if @variants.key?(v)
-            end
           else
-            @variants[:any]
+            @variants[variant_key]
           end
         end
+
+        private
+          def variant_key
+            @variant.find { |variant| @variants.key?(variant) } || :any
+          end
       end
     end
   end

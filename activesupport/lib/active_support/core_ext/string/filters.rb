@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class String
   # Returns the string, first removing all whitespace on both ends of
   # the string, and then changing remaining consecutive whitespace
@@ -17,9 +19,8 @@ class String
   #   str.squish!                         # => "foo bar boo"
   #   str                                 # => "foo bar boo"
   def squish!
-    gsub!(/\A[[:space:]]+/, '')
-    gsub!(/[[:space:]]+\z/, '')
-    gsub!(/[[:space:]]+/, ' ')
+    gsub!(/[[:space:]]+/, " ")
+    strip!
     self
   end
 
@@ -44,7 +45,7 @@ class String
     self
   end
 
-  # Truncates a given +text+ after a given <tt>length</tt> if +text+ is longer than <tt>length</tt>:
+  # Truncates a given +text+ to length <tt>truncate_to</tt> if +text+ is longer than <tt>truncate_to</tt>:
   #
   #   'Once upon a time in a world far far away'.truncate(27)
   #   # => "Once upon a time in a wo..."
@@ -57,16 +58,20 @@ class String
   #   'Once upon a time in a world far far away'.truncate(27, separator: /\s/)
   #   # => "Once upon a time in a..."
   #
-  # The last characters will be replaced with the <tt>:omission</tt> string (defaults to "...")
-  # for a total length not exceeding <tt>length</tt>:
+  # The last characters will be replaced with the <tt>:omission</tt> string (defaults to "...").
+  # The total length will not exceed <tt>truncate_to</tt> unless both +text+ and <tt>:omission</tt>
+  # are longer than <tt>truncate_to</tt>:
   #
   #   'And they found that many people were sleeping better.'.truncate(25, omission: '... (continued)')
   #   # => "And they f... (continued)"
-  def truncate(truncate_at, options = {})
-    return dup unless length > truncate_at
+  #
+  #   'And they found that many people were sleeping better.'.truncate(4, omission: '... (continued)')
+  #   # => "... (continued)"
+  def truncate(truncate_to, options = {})
+    return dup unless length > truncate_to
 
-    omission = options[:omission] || '...'
-    length_with_room_for_omission = truncate_at - omission.length
+    omission = options[:omission] || "..."
+    length_with_room_for_omission = truncate_to - omission.length
     stop = \
       if options[:separator]
         rindex(options[:separator], length_with_room_for_omission) || length_with_room_for_omission
@@ -74,7 +79,50 @@ class String
         length_with_room_for_omission
       end
 
-    "#{self[0, stop]}#{omission}"
+    +"#{self[0, stop]}#{omission}"
+  end
+
+  # Truncates +text+ to at most <tt>truncate_to</tt> bytes in length without
+  # breaking string encoding by splitting multibyte characters or breaking
+  # grapheme clusters ("perceptual characters") by truncating at combining
+  # characters.
+  #
+  #   >> "🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪".size
+  #   => 20
+  #   >> "🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪".bytesize
+  #   => 80
+  #   >> "🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪🔪".truncate_bytes(20)
+  #   => "🔪🔪🔪🔪…"
+  #
+  # The truncated text ends with the <tt>:omission</tt> string, defaulting
+  # to "…", for a total length not exceeding <tt>truncate_to</tt>.
+  #
+  # Raises +ArgumentError+ when the bytesize of <tt>:omission</tt> exceeds <tt>truncate_to</tt>.
+  def truncate_bytes(truncate_to, omission: "…")
+    omission ||= ""
+
+    case
+    when bytesize <= truncate_to
+      dup
+    when omission.bytesize > truncate_to
+      raise ArgumentError, "Omission #{omission.inspect} is #{omission.bytesize}, larger than the truncation length of #{truncate_to} bytes"
+    when omission.bytesize == truncate_to
+      omission.dup
+    else
+      self.class.new.tap do |cut|
+        cut_at = truncate_to - omission.bytesize
+
+        each_grapheme_cluster do |grapheme|
+          if cut.bytesize + grapheme.bytesize <= cut_at
+            cut << grapheme
+          else
+            break
+          end
+        end
+
+        cut << omission
+      end
+    end
   end
 
   # Truncates a given +text+ after a given number of words (<tt>words_count</tt>):
@@ -95,7 +143,7 @@ class String
     sep = options[:separator] || /\s+/
     sep = Regexp.escape(sep.to_s) unless Regexp === sep
     if self =~ /\A((?>.+?#{sep}){#{words_count - 1}}.+?)#{sep}.*/m
-      $1 + (options[:omission] || '...')
+      $1 + (options[:omission] || "...")
     else
       dup
     end

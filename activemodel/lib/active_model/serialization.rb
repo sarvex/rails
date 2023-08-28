@@ -1,8 +1,9 @@
-require 'active_support/core_ext/hash/except'
-require 'active_support/core_ext/hash/slice'
+# frozen_string_literal: true
+
+require "active_support/core_ext/enumerable"
 
 module ActiveModel
-  # == Active \Model \Serialization
+  # = Active \Model \Serialization
   #
   # Provides a basic serialization to a serializable_hash for your objects.
   #
@@ -31,16 +32,14 @@ module ActiveModel
   # of the attributes hash's keys. In order to override this behavior, take a look
   # at the private method +read_attribute_for_serialization+.
   #
-  # Most of the time though, either the JSON or XML serializations are needed.
-  # Both of these modules automatically include the
-  # <tt>ActiveModel::Serialization</tt> module, so there is no need to
-  # explicitly include it.
+  # ActiveModel::Serializers::JSON module automatically includes
+  # the +ActiveModel::Serialization+ module, so there is no need to
+  # explicitly include +ActiveModel::Serialization+.
   #
-  # A minimal implementation including XML and JSON would be:
+  # A minimal implementation including JSON would be:
   #
   #   class Person
   #     include ActiveModel::Serializers::JSON
-  #     include ActiveModel::Serializers::Xml
   #
   #     attr_accessor :name
   #
@@ -55,13 +54,11 @@ module ActiveModel
   #   person.serializable_hash   # => {"name"=>nil}
   #   person.as_json             # => {"name"=>nil}
   #   person.to_json             # => "{\"name\":null}"
-  #   person.to_xml              # => "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<serial-person...
   #
   #   person.name = "Bob"
   #   person.serializable_hash   # => {"name"=>"Bob"}
   #   person.as_json             # => {"name"=>"Bob"}
   #   person.to_json             # => "{\"name\":\"Bob\"}"
-  #   person.to_xml              # => "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<serial-person...
   #
   # Valid options are <tt>:only</tt>, <tt>:except</tt>, <tt>:methods</tt> and
   # <tt>:include</tt>. The following are all valid examples:
@@ -94,20 +91,51 @@ module ActiveModel
     #   person.serializable_hash(except: :name) # => {"age"=>22}
     #   person.serializable_hash(methods: :capitalized_name)
     #   # => {"name"=>"bob", "age"=>22, "capitalized_name"=>"Bob"}
+    #
+    # Example with <tt>:include</tt> option
+    #
+    #   class User
+    #     include ActiveModel::Serializers::JSON
+    #     attr_accessor :name, :notes # Emulate has_many :notes
+    #     def attributes
+    #       {'name' => nil}
+    #     end
+    #   end
+    #
+    #   class Note
+    #     include ActiveModel::Serializers::JSON
+    #     attr_accessor :title, :text
+    #     def attributes
+    #       {'title' => nil, 'text' => nil}
+    #     end
+    #   end
+    #
+    #   note = Note.new
+    #   note.title = 'Battle of Austerlitz'
+    #   note.text = 'Some text here'
+    #
+    #   user = User.new
+    #   user.name = 'Napoleon'
+    #   user.notes = [note]
+    #
+    #   user.serializable_hash
+    #   # => {"name" => "Napoleon"}
+    #   user.serializable_hash(include: { notes: { only: 'title' }})
+    #   # => {"name" => "Napoleon", "notes" => [{"title"=>"Battle of Austerlitz"}]}
     def serializable_hash(options = nil)
-      options ||= {}
+      attribute_names = attribute_names_for_serialization
 
-      attribute_names = attributes.keys
+      return serializable_attributes(attribute_names) if options.blank?
+
       if only = options[:only]
         attribute_names &= Array(only).map(&:to_s)
       elsif except = options[:except]
         attribute_names -= Array(except).map(&:to_s)
       end
 
-      hash = {}
-      attribute_names.each { |n| hash[n] = read_attribute_for_serialization(n) }
+      hash = serializable_attributes(attribute_names)
 
-      Array(options[:methods]).each { |m| hash[m.to_s] = send(m) if respond_to?(m) }
+      Array(options[:methods]).each { |m| hash[m.to_s] = send(m) }
 
       serializable_add_includes(options) do |association, records, opts|
         hash[association.to_s] = if records.respond_to?(:to_ary)
@@ -121,6 +149,9 @@ module ActiveModel
     end
 
     private
+      def attribute_names_for_serialization
+        attributes.keys
+      end
 
       # Hook method defining how an attribute value should be retrieved for
       # serialization. By default this is assumed to be an instance named after
@@ -140,17 +171,21 @@ module ActiveModel
       #   end
       alias :read_attribute_for_serialization :send
 
+      def serializable_attributes(attribute_names)
+        attribute_names.index_with { |n| read_attribute_for_serialization(n) }
+      end
+
       # Add associations specified via the <tt>:include</tt> option.
       #
       # Expects a block that takes as arguments:
       #   +association+ - name of the association
       #   +records+     - the association record(s) to be serialized
       #   +opts+        - options for the association records
-      def serializable_add_includes(options = {}) #:nodoc:
+      def serializable_add_includes(options = {}) # :nodoc:
         return unless includes = options[:include]
 
         unless includes.is_a?(Hash)
-          includes = Hash[Array(includes).map { |n| n.is_a?(Hash) ? n.to_a.first : [n, {}] }]
+          includes = Hash[Array(includes).flat_map { |n| n.is_a?(Hash) ? n.to_a : [[n, {}]] }]
         end
 
         includes.each do |association, opts|

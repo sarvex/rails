@@ -1,4 +1,6 @@
-require 'active_support/multibyte'
+# frozen_string_literal: true
+
+require "active_support/multibyte"
 
 class String
   # == Multibyte proxy
@@ -9,12 +11,13 @@ class String
   # encapsulates the original string. A Unicode safe version of all the String methods are defined on this proxy
   # class. If the proxy class doesn't respond to a certain method, it's forwarded to the encapsulated string.
   #
-  #   name = 'Claus Müller'
-  #   name.reverse # => "rell??M sualC"
-  #   name.length  # => 13
+  #   >> "ǉ".mb_chars.upcase.to_s
+  #   => "Ǉ"
   #
-  #   name.mb_chars.reverse.to_s # => "rellüM sualC"
-  #   name.mb_chars.length       # => 12
+  # NOTE: Ruby 2.4 and later support native Unicode case mappings:
+  #
+  #   >> "ǉ".upcase
+  #   => "Ǉ"
   #
   # == Method chaining
   #
@@ -44,9 +47,9 @@ class String
   #   iso_str.is_utf8?   # => false
   def is_utf8?
     case encoding
-    when Encoding::UTF_8
+    when Encoding::UTF_8, Encoding::US_ASCII
       valid_encoding?
-    when Encoding::ASCII_8BIT, Encoding::US_ASCII
+    when Encoding::ASCII_8BIT
       dup.force_encoding(Encoding::UTF_8).valid_encoding?
     else
       false

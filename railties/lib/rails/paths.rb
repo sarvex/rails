@@ -1,14 +1,18 @@
+# frozen_string_literal: true
+
+require "pathname"
+
 module Rails
   module Paths
-    # This object is an extended hash that behaves as root of the <tt>Rails::Paths</tt> system.
+    # This object is an extended hash that behaves as root of the +Rails::Paths+ system.
     # It allows you to collect information about how you want to structure your application
-    # paths by a Hash like API. It requires you to give a physical path on initialization.
+    # paths through a Hash-like API. It requires you to give a physical path on initialization.
     #
     #   root = Root.new "/rails"
     #   root.add "app/controllers", eager_load: true
     #
-    # The command above creates a new root object and adds "app/controllers" as a path.
-    # This means we can get a <tt>Rails::Paths::Path</tt> object back like below:
+    # The above command creates a new root object and adds "app/controllers" as a path.
+    # This means we can get a Rails::Paths::Path object back like below:
     #
     #   path = root["app/controllers"]
     #   path.eager_load?               # => true
@@ -30,7 +34,7 @@ module Rails
     #   root["config/routes"].inspect # => ["config/routes.rb"]
     #
     # The +add+ method accepts the following options as arguments:
-    # eager_load, autoload, autoload_once and glob.
+    # eager_load, autoload, autoload_once, and glob.
     #
     # Finally, the +Path+ object also provides a few helpers:
     #
@@ -40,12 +44,11 @@ module Rails
     #   root["app/controllers"].expanded # => ["/rails/app/controllers"]
     #   root["app/controllers"].existent # => ["/rails/app/controllers"]
     #
-    # Check the <tt>Rails::Paths::Path</tt> documentation for more information.
+    # Check the +Rails::Paths::Path+ documentation for more information.
     class Root
       attr_accessor :path
 
       def initialize(path)
-        @current = nil
         @path = path
         @root = {}
       end
@@ -97,7 +100,6 @@ module Rails
       end
 
     private
-
       def filter_by(&block)
         all_paths.find_all(&block).flat_map { |path|
           paths = path.existent
@@ -112,15 +114,20 @@ module Rails
       attr_accessor :glob
 
       def initialize(root, current, paths, options = {})
-        @paths    = paths
-        @current  = current
-        @root     = root
-        @glob     = options[:glob]
+        @paths   = paths
+        @current = current
+        @root    = root
+        @glob    = options[:glob]
+        @exclude = options[:exclude]
 
         options[:autoload_once] ? autoload_once! : skip_autoload_once!
         options[:eager_load]    ? eager_load!    : skip_eager_load!
         options[:autoload]      ? autoload!      : skip_autoload!
         options[:load_path]     ? load_path!     : skip_load_path!
+      end
+
+      def absolute_current # :nodoc:
+        File.expand_path(@current, @root.path)
       end
 
       def children
@@ -175,18 +182,28 @@ module Rails
         @paths
       end
 
+      def paths
+        raise "You need to set a path root" unless @root.path
+
+        map do |p|
+          Pathname.new(@root.path).join(p)
+        end
+      end
+
+      def extensions # :nodoc:
+        $1.split(",") if @glob =~ /\{([\S]+)\}/
+      end
+
       # Expands all paths against the root and return all unique values.
       def expanded
         raise "You need to set a path root" unless @root.path
         result = []
 
-        each do |p|
-          path = File.expand_path(p, @root.path)
+        each do |path|
+          path = File.expand_path(path, @root.path)
 
           if @glob && File.directory?(path)
-            Dir.chdir(path) do
-              result.concat(Dir.glob(@glob).map { |file| File.join path, file }.sort)
-            end
+            result.concat files_in(path)
           else
             result << path
           end
@@ -198,7 +215,14 @@ module Rails
 
       # Returns all expanded paths but only if they exist in the filesystem.
       def existent
-        expanded.select { |f| File.exist?(f) }
+        expanded.select do |f|
+          does_exist = File.exist?(f)
+
+          if !does_exist && File.symlink?(f)
+            raise "File #{f.inspect} is a symlink that does not point to a valid file"
+          end
+          does_exist
+        end
       end
 
       def existent_directories
@@ -206,6 +230,14 @@ module Rails
       end
 
       alias to_a expanded
+
+      private
+        def files_in(path)
+          files = Dir.glob(@glob, base: path)
+          files -= @exclude if @exclude
+          files.map! { |file| File.join(path, file) }
+          files.sort
+        end
     end
   end
 end

@@ -1,56 +1,121 @@
-*   Add `assert_enqueued_emails` and `assert_no_enqueued_emails`.
+*   Mailers are listed in alphabetical order on the mailer preview page now.
+
+    *Martin Spickermann*
+
+*   Deprecate passing params to `assert_enqueued_email_with` via the `:args`
+    kwarg. `assert_enqueued_email_with` now supports a `:params` kwarg, so use
+    that to pass params:
+
+    ```ruby
+    # BEFORE
+    assert_enqueued_email_with MyMailer, :my_method, args: { my_param: "value" }
+
+    # AFTER
+    assert_enqueued_email_with MyMailer, :my_method, params: { my_param: "value" }
+    ```
+
+    To specify named mailer args as a Hash, wrap the Hash in an array:
+
+    ```ruby
+    assert_enqueued_email_with MyMailer, :my_method, args: [{ my_arg: "value" }]
+    # OR
+    assert_enqueued_email_with MyMailer, :my_method, args: [my_arg: "value"]
+    ```
+
+    *Jonathan Hefner*
+
+*   Accept procs for args and params in `assert_enqueued_email_with`
+
+    ```ruby
+    assert_enqueued_email_with DeliveryJob, params: -> p { p[:token] =~ /\w+/ } do
+      UserMailer.with(token: user.generate_token).email_verification.deliver_later
+    end
+    ```
+
+    *Max Chernyak*
+
+*   Added `*_deliver` callbacks to `ActionMailer::Base` that wrap mail message delivery.
 
     Example:
 
-        def test_emails
-          assert_enqueued_emails 2 do
-            ContactMailer.welcome.deliver_later
-            ContactMailer.welcome.deliver_later
-          end
-        end
+    ```ruby
+    class EventsMailer < ApplicationMailer
+      after_deliver do
+        User.find_by(email: message.to.first).update(email_provider_id: message.message_id, emailed_at: Time.current)
+      end
+    end
+    ```
 
-        def test_no_emails
-          assert_no_enqueued_emails do
-            # No emails enqueued here
-          end
-        end
+    *Ben Sheldon*
 
-    *George Claghorn*
+*   Added `deliver_enqueued_emails` to `ActionMailer::TestHelper`. This method
+    delivers all enqueued email jobs.
 
-*   Add `_mailer` suffix to mailers created via generator, following the same
-    naming convention used in controllers and jobs.
+    Example:
 
-    *Carlos Souza*
+    ```ruby
+    def test_deliver_enqueued_emails
+      deliver_enqueued_emails do
+        ContactMailer.welcome.deliver_later
+      end
+      assert_emails 1
+    end
+    ```
 
-*   Remove deprecate `*_path` helpers in email views.
+    *Andrew Novoselac*
 
-    *Rafael Mendonça França*
+*   The `deliver_later_queue_name` used by the default mailer job can now be
+    configured on a per-mailer basis. Previously this was only configurable
+    for all mailers via `ActionMailer::Base`.
 
-*   Remove deprecated `deliver` and `deliver!` methods.
+    Example:
 
-    *claudiob*
+    ```ruby
+    class EventsMailer < ApplicationMailer
+      self.deliver_later_queue_name = :throttled_mailer
+    end
+    ```
 
-*   Template lookup now respects default locale and I18n fallbacks.
+    *Jeffrey Hardy*
 
-    Given the following templates:
+*   Email previews now include an expandable section to show all headers.
 
-        mailer/demo.html.erb
-        mailer/demo.en.html.erb
-        mailer/demo.pt.html.erb
+    Headers like `Message-ID` for threading or email service provider specific
+    features like analytics tags or account metadata can now be viewed directly
+    in the mailer preview.
 
-    Before this change, for a locale that doesn't have its associated file, the
-    `mailer/demo.html.erb` would be rendered even if `en` was the default locale.
+    *Matt Swanson*
 
-    Now `mailer/demo.en.html.erb` has precedence over the file without locale.
+*   Default `ActionMailer::Parameterized#params` to an empty `Hash`
 
-    Also, it is possible to give a fallback.
+    *Sean Doyle*
 
-        mailer/demo.pt.html.erb
-        mailer/demo.pt-BR.html.erb
+*   Introduce the `capture_emails` test helper.
 
-    So if the locale is `pt-PT`, `mailer/demo.pt.html.erb` will be rendered given
-    the right I18n fallback configuration.
+    Returns all emails that are sent in a block.
 
-    *Rafael Mendonça França*
+    ```ruby
+    def test_emails
+      emails = capture_emails do
+        ContactMailer.welcome.deliver_now
+        ContactMailer.welcome.deliver_later
+      end
+      assert_email "Hi there", emails.first.subject
+    end
+    ```
 
-Please check [4-2-stable](https://github.com/rails/rails/blob/4-2-stable/actionmailer/CHANGELOG.md) for previous changes.
+    *Alex Ghiculescu*
+
+*   Added ability to download `.eml` file for the email preview.
+
+    *Igor Kasyanchuk*
+
+*   Support multiple preview paths for mailers.
+
+    Option `config.action_mailer.preview_path` is deprecated in favor of
+    `config.action_mailer.preview_paths`. Appending paths to this configuration option
+    will cause those paths to be used in the search for mailer previews.
+
+    *fatkodima*
+
+Please check [7-0-stable](https://github.com/rails/rails/blob/7-0-stable/actionmailer/CHANGELOG.md) for previous changes.

@@ -1,43 +1,89 @@
-require 'rake/testtask'
-require 'rubygems/package_task'
+# frozen_string_literal: true
+
+require "rake/testtask"
+require "fileutils"
+require "open3"
+require "base64"
 
 desc "Default Task"
-task :default => :test
+task default: :test
+
+task :package
 
 # Run the unit tests
 
 desc "Run all unit tests"
-task :test => ["test:template", "test:integration:action_pack", "test:integration:active_record"]
+task test: ["test:template", "test:integration:action_pack", "test:integration:active_record"]
 
 namespace :test do
   task :isolated do
     Dir.glob("test/{actionpack,activerecord,template}/**/*_test.rb").all? do |file|
-      sh(Gem.ruby, '-w', '-Ilib:test', file)
-    end or raise "Failures"
+      sh(Gem.ruby, "-w", "-Ilib:test", file)
+    end || raise("Failures")
   end
 
   Rake::TestTask.new(:template) do |t|
-    t.libs << 'test'
-    t.test_files = Dir.glob('test/template/**/*_test.rb')
+    t.libs << "test"
+    t.test_files = FileList["test/template/**/*_test.rb"]
     t.warning = true
     t.verbose = true
     t.ruby_opts = ["--dev"] if defined?(JRUBY_VERSION)
   end
 
+  desc "Run tests for rails-ujs"
+  task :ujs do
+    system("npm run lint")
+    exit $?.exitstatus unless $?.success?
+
+    begin
+      listen_host = "localhost"
+      listen_port = "4567"
+
+      FileUtils.mkdir_p("log")
+      pid = File.open("log/test.log", "w") do |f|
+        spawn(*%W(rackup test/ujs/config.ru -o #{listen_host} -p #{listen_port} -s puma), out: f, err: f, pgroup: true)
+      end
+
+      start_time = Time.now
+
+      loop do
+        break if system("lsof -i :4567", 1 => File::NULL)
+
+        if Time.now - start_time > 5
+          puts "Failed to start puma after 5 seconds"
+          puts
+          puts File.read("log/test.log")
+          exit 1
+        end
+
+        sleep 0.2
+      end
+      # Decode the obfuscate environment variables
+      decoded_environment_variables = Hash[*Base64.decode64(ENV.fetch("ENCODED", "")).split(/[ =]/)]
+      system(decoded_environment_variables, "npm", "test")
+      status = $?.exitstatus
+    ensure
+      Process.kill("KILL", -pid) if pid
+      FileUtils.rm_rf("log")
+    end
+
+    exit status
+  end
+
   namespace :integration do
-    desc 'ActiveRecord Integration Tests'
+    # Active Record Integration Tests
     Rake::TestTask.new(:active_record) do |t|
-      t.libs << 'test'
-      t.test_files = Dir.glob("test/activerecord/*_test.rb")
+      t.libs << "test"
+      t.test_files = FileList["test/activerecord/*_test.rb"]
       t.warning = true
       t.verbose = true
       t.ruby_opts = ["--dev"] if defined?(JRUBY_VERSION)
     end
 
-    desc 'ActionPack Integration Tests'
+    # Action Pack Integration Tests
     Rake::TestTask.new(:action_pack) do |t|
-      t.libs << 'test'
-      t.test_files = Dir.glob("test/actionpack/**/*_test.rb")
+      t.libs << "test"
+      t.test_files = FileList["test/actionpack/**/*_test.rb"]
       t.warning = true
       t.verbose = true
       t.ruby_opts = ["--dev"] if defined?(JRUBY_VERSION)
@@ -45,39 +91,16 @@ namespace :test do
   end
 end
 
-spec = eval(File.read('actionview.gemspec'))
-
-Gem::PackageTask.new(spec) do |p|
-  p.gem_spec = spec
-end
-
-desc "Release to rubygems"
-task :release => :package do
-  require 'rake/gemcutter'
-  Rake::Gemcutter::Tasks.new(spec).define
-  Rake::Task['gem:push'].invoke
+namespace :ujs do
+  desc "Starts the test server"
+  task :server do
+    spawn("bundle", "exec", "rackup", "test/ujs/config.ru", "-p", "4567", "-s", "puma")
+    system("npm", "test", "--", "--no-single-run", "--browsers", "Chrome")
+  end
 end
 
 task :lines do
-  lines, codelines, total_lines, total_codelines = 0, 0, 0, 0
-
-  FileList["lib/**/*.rb"].each do |file_name|
-    next if file_name =~ /vendor/
-    File.open(file_name, 'r') do |f|
-      while line = f.gets
-        lines += 1
-        next if line =~ /^\s*$/
-        next if line =~ /^\s*#/
-        codelines += 1
-      end
-    end
-    puts "L: #{sprintf("%4d", lines)}, LOC #{sprintf("%4d", codelines)} | #{file_name}"
-
-    total_lines     += lines
-    total_codelines += codelines
-
-    lines, codelines = 0, 0
-  end
-
-  puts "Total: Lines #{total_lines}, LOC #{total_codelines}"
+  load File.expand_path("../tools/line_statistics", __dir__)
+  files = FileList["lib/**/*.rb"]
+  CodeTools::LineStatistics.new(files).print_loc
 end

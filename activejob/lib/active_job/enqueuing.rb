@@ -1,50 +1,74 @@
-require 'active_job/arguments'
+# frozen_string_literal: true
+
+require "active_job/arguments"
 
 module ActiveJob
+  # Provides behavior for enqueuing jobs.
+
+  # Can be raised by adapters if they wish to communicate to the caller a reason
+  # why the adapter was unexpectedly unable to enqueue a job.
+  class EnqueueError < StandardError; end
+
+  class << self
+    # Push many jobs onto the queue at once without running enqueue callbacks.
+    # Queue adapters may communicate the enqueue status of each job by setting
+    # successfully_enqueued and/or enqueue_error on the passed-in job instances.
+    def perform_all_later(*jobs)
+      jobs.flatten!
+      jobs.group_by(&:queue_adapter).each do |queue_adapter, adapter_jobs|
+        instrument_enqueue_all(queue_adapter, adapter_jobs) do
+          if queue_adapter.respond_to?(:enqueue_all)
+            queue_adapter.enqueue_all(adapter_jobs)
+          else
+            adapter_jobs.each do |job|
+              job.successfully_enqueued = false
+              if job.scheduled_at
+                queue_adapter.enqueue_at(job, job.scheduled_at)
+              else
+                queue_adapter.enqueue(job)
+              end
+              job.successfully_enqueued = true
+            rescue EnqueueError => e
+              job.enqueue_error = e
+            end
+            adapter_jobs.count(&:successfully_enqueued?)
+          end
+        end
+      end
+      nil
+    end
+  end
+
   module Enqueuing
     extend ActiveSupport::Concern
 
     # Includes the +perform_later+ method for job initialization.
     module ClassMethods
-      # Push a job onto the queue. The arguments must be legal JSON types
-      # (string, int, float, nil, true, false, hash or array) or
-      # GlobalID::Identification instances. Arbitrary Ruby objects
-      # are not supported.
+      # Push a job onto the queue. By default the arguments must be either String,
+      # Integer, Float, NilClass, TrueClass, FalseClass, BigDecimal, Symbol, Date,
+      # Time, DateTime, ActiveSupport::TimeWithZone, ActiveSupport::Duration,
+      # Hash, ActiveSupport::HashWithIndifferentAccess, Array, Range, or
+      # GlobalID::Identification instances, although this can be extended by adding
+      # custom serializers.
       #
       # Returns an instance of the job class queued with arguments available in
-      # Job#arguments.
-      def perform_later(*args)
-        job_or_instantiate(*args).enqueue
+      # Job#arguments or false if the enqueue did not succeed.
+      #
+      # After the attempted enqueue, the job will be yielded to an optional block.
+      def perform_later(...)
+        job = job_or_instantiate(...)
+        enqueue_result = job.enqueue
+
+        yield job if block_given?
+
+        enqueue_result
       end
 
-      protected
-        def job_or_instantiate(*args)
+      private
+        def job_or_instantiate(*args) # :doc:
           args.first.is_a?(self) ? args.first : new(*args)
         end
-    end
-
-    # Reschedules the job to be re-executed. This is useful in combination
-    # with the +rescue_from+ option. When you rescue an exception from your job
-    # you can ask Active Job to retry performing your job.
-    #
-    # ==== Options
-    # * <tt>:wait</tt> - Enqueues the job with the specified delay
-    # * <tt>:wait_until</tt> - Enqueues the job at the time specified
-    # * <tt>:queue</tt> - Enqueues the job on the specified queue
-    #
-    # ==== Examples
-    #
-    #  class SiteScrapperJob < ActiveJob::Base
-    #    rescue_from(ErrorLoadingSite) do
-    #      retry_job queue: :low_priority
-    #    end
-    #
-    #    def perform(*args)
-    #      # raise ErrorLoadingSite if cannot scrape
-    #    end
-    #  end
-    def retry_job(options={})
-      enqueue options
+        ruby2_keywords(:job_or_instantiate)
     end
 
     # Enqueues the job to be performed by the queue adapter.
@@ -53,6 +77,7 @@ module ActiveJob
     # * <tt>:wait</tt> - Enqueues the job with the specified delay
     # * <tt>:wait_until</tt> - Enqueues the job at the time specified
     # * <tt>:queue</tt> - Enqueues the job on the specified queue
+    # * <tt>:priority</tt> - Enqueues the job with the specified priority
     #
     # ==== Examples
     #
@@ -60,18 +85,28 @@ module ActiveJob
     #    my_job_instance.enqueue wait: 5.minutes
     #    my_job_instance.enqueue queue: :important
     #    my_job_instance.enqueue wait_until: Date.tomorrow.midnight
-    def enqueue(options={})
-      self.scheduled_at = options[:wait].seconds.from_now.to_f if options[:wait]
-      self.scheduled_at = options[:wait_until].to_f if options[:wait_until]
-      self.queue_name   = self.class.queue_name_from_part(options[:queue]) if options[:queue]
+    #    my_job_instance.enqueue priority: 10
+    def enqueue(options = {})
+      set(options)
+      self.successfully_enqueued = false
+
       run_callbacks :enqueue do
-        if self.scheduled_at
-          self.class.queue_adapter.enqueue_at self, self.scheduled_at
+        if scheduled_at
+          queue_adapter.enqueue_at self, scheduled_at
         else
-          self.class.queue_adapter.enqueue self
+          queue_adapter.enqueue self
         end
+
+        self.successfully_enqueued = true
+      rescue EnqueueError => e
+        self.enqueue_error = e
       end
-      self
+
+      if successfully_enqueued?
+        self
+      else
+        false
+      end
     end
   end
 end

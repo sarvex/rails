@@ -1,29 +1,23 @@
-require 'abstract_unit'
-require 'rails/engine'
-require 'action_dispatch/routing/inspector'
+# frozen_string_literal: true
+
+require "abstract_unit"
+require "rails/engine"
+require "action_dispatch/routing/inspector"
+require "io/console/size"
 
 class MountedRackApp
   def self.call(env)
   end
 end
 
+class Rails::DummyController
+end
+
 module ActionDispatch
   module Routing
     class RoutesInspectorTest < ActiveSupport::TestCase
-      def setup
+      setup do
         @set = ActionDispatch::Routing::RouteSet.new
-        app = ActiveSupport::OrderedOptions.new
-        app.config = ActiveSupport::OrderedOptions.new
-        app.config.assets = ActiveSupport::OrderedOptions.new
-        app.config.assets.prefix = '/sprockets'
-        Rails.stubs(:application).returns(app)
-        Rails.stubs(:env).returns("development")
-      end
-
-      def draw(options = {}, &block)
-        @set.draw(&block)
-        inspector = ActionDispatch::Routing::RoutesInspector.new(@set.routes)
-        inspector.format(ActionDispatch::Routing::ConsoleFormatter.new, options[:filter]).split("\n")
       end
 
       def test_displaying_routes_for_engines
@@ -33,11 +27,11 @@ module ActionDispatch
           end
         end
         engine.routes.draw do
-          get '/cart', :to => 'cart#show'
+          get "/cart", to: "cart#show"
         end
 
         output = draw do
-          get '/custom/assets', :to => 'custom_assets#show'
+          get "/custom/assets", to: "custom_assets#show"
           mount engine => "/blog", :as => "blog"
         end
 
@@ -74,7 +68,7 @@ module ActionDispatch
 
       def test_cart_inspect
         output = draw do
-          get '/cart', :to => 'cart#show'
+          get "/cart", to: "cart#show"
         end
 
         assert_equal [
@@ -83,9 +77,20 @@ module ActionDispatch
         ], output
       end
 
+      def test_articles_inspect_with_multiple_verbs
+        output = draw do
+          match "articles/:id", to: "articles#update", via: [:put, :patch]
+        end
+
+        assert_equal [
+          "Prefix Verb      URI Pattern             Controller#Action",
+          "       PUT|PATCH /articles/:id(.:format) articles#update"
+        ], output
+      end
+
       def test_inspect_shows_custom_assets
         output = draw do
-          get '/custom/assets', :to => 'custom_assets#show'
+          get "/custom/assets", to: "custom_assets#show"
         end
 
         assert_equal [
@@ -114,7 +119,7 @@ module ActionDispatch
 
       def test_inspect_routes_shows_root_route
         output = draw do
-          root :to => 'pages#main'
+          root to: "pages#main"
         end
 
         assert_equal [
@@ -125,7 +130,9 @@ module ActionDispatch
 
       def test_inspect_routes_shows_dynamic_action_route
         output = draw do
-          get 'api/:action' => 'api'
+          ActionDispatch.deprecator.silence do
+            get "api/:action" => "api"
+          end
         end
 
         assert_equal [
@@ -136,7 +143,9 @@ module ActionDispatch
 
       def test_inspect_routes_shows_controller_and_action_only_route
         output = draw do
-          get ':controller/:action'
+          ActionDispatch.deprecator.silence do
+            get ":controller/:action"
+          end
         end
 
         assert_equal [
@@ -147,7 +156,9 @@ module ActionDispatch
 
       def test_inspect_routes_shows_controller_and_action_route_with_constraints
         output = draw do
-          get ':controller(/:action(/:id))', :id => /\d+/
+          ActionDispatch.deprecator.silence do
+            get ":controller(/:action(/:id))", id: /\d+/
+          end
         end
 
         assert_equal [
@@ -156,20 +167,20 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_shows_route_with_defaults
+      def test_rails_routes_shows_route_with_defaults
         output = draw do
-          get 'photos/:id' => 'photos#show', :defaults => {:format => 'jpg'}
+          get "photos/:id" => "photos#show", :defaults => { format: "jpg" }
         end
 
         assert_equal [
           "Prefix Verb URI Pattern           Controller#Action",
-          %Q[       GET  /photos/:id(.:format) photos#show {:format=>"jpg"}]
+          '       GET  /photos/:id(.:format) photos#show {:format=>"jpg"}'
         ], output
       end
 
-      def test_rake_routes_shows_route_with_constraints
+      def test_rails_routes_shows_route_with_constraints
         output = draw do
-          get 'photos/:id' => 'photos#show', :id => /[A-Z]\d{5}/
+          get "photos/:id" => "photos#show", :id => /[A-Z]\d{5}/
         end
 
         assert_equal [
@@ -178,15 +189,15 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_shows_routes_with_dashes
+      def test_rails_routes_shows_routes_with_dashes
         output = draw do
-          get 'about-us' => 'pages#about_us'
-          get 'our-work/latest'
+          get "about-us" => "pages#about_us"
+          get "our-work/latest"
 
           resources :photos, only: [:show] do
-            get 'user-favorites', on: :collection
-            get 'preview-photo', on: :member
-            get 'summary-text'
+            get "user-favorites", on: :collection
+            get "preview-photo", on: :member
+            get "summary-text"
           end
         end
 
@@ -201,9 +212,9 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_shows_route_with_rack_app
+      def test_rails_routes_shows_route_with_rack_app
         output = draw do
-          get 'foo/:id' => MountedRackApp, :id => /[A-Z]\d{5}/
+          get "foo/:id" => MountedRackApp, :id => /[A-Z]\d{5}/
         end
 
         assert_equal [
@@ -212,9 +223,9 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_shows_named_route_with_mounted_rack_app
+      def test_rails_routes_shows_named_route_with_mounted_rack_app
         output = draw do
-          mount MountedRackApp => '/foo'
+          mount MountedRackApp => "/foo"
         end
 
         assert_equal [
@@ -223,9 +234,9 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_shows_overridden_named_route_with_mounted_rack_app_with_name
+      def test_rails_routes_shows_overridden_named_route_with_mounted_rack_app_with_name
         output = draw do
-          mount MountedRackApp => '/foo', as: 'blog'
+          mount MountedRackApp => "/foo", as: "blog"
         end
 
         assert_equal [
@@ -234,7 +245,7 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_shows_route_with_rack_app_nested_with_dynamic_constraints
+      def test_rails_routes_shows_route_with_rack_app_nested_with_dynamic_constraints
         constraint = Class.new do
           def inspect
             "( my custom constraint )"
@@ -242,8 +253,8 @@ module ActionDispatch
         end
 
         output = draw do
-          scope :constraint => constraint.new do
-            mount MountedRackApp => '/foo'
+          scope constraint: constraint.new do
+            mount MountedRackApp => "/foo"
           end
         end
 
@@ -253,18 +264,18 @@ module ActionDispatch
         ], output
       end
 
-      def test_rake_routes_dont_show_app_mounted_in_assets_prefix
+      def test_rails_routes_dont_show_app_mounted_in_assets_prefix
         output = draw do
-          get '/sprockets' => MountedRackApp
+          get "/sprockets" => MountedRackApp
         end
         assert_no_match(/MountedRackApp/, output.first)
         assert_no_match(/\/sprockets/, output.first)
       end
 
-      def test_rake_routes_shows_route_defined_in_under_assets_prefix
+      def test_rails_routes_shows_route_defined_in_under_assets_prefix
         output = draw do
-          scope '/sprockets' do
-            get '/foo' => 'foo#bar'
+          scope "/sprockets" do
+            get "/foo" => "foo#bar"
           end
         end
         assert_equal [
@@ -275,9 +286,9 @@ module ActionDispatch
 
       def test_redirect
         output = draw do
-          get "/foo"    => redirect("/foo/bar"), :constraints => { :subdomain => "admin" }
+          get "/foo"    => redirect("/foo/bar"), :constraints => { subdomain: "admin" }
           get "/bar"    => redirect(path: "/foo/bar", status: 307)
-          get "/foobar" => redirect{ "/foo/bar" }
+          get "/foobar" => redirect { "/foo/bar" }
         end
 
         assert_equal [
@@ -289,7 +300,7 @@ module ActionDispatch
       end
 
       def test_routes_can_be_filtered
-        output = draw(filter: 'posts') do
+        output = draw(grep: "posts") do
           resources :articles
           resources :posts
         end
@@ -305,14 +316,183 @@ module ActionDispatch
                       "          DELETE /posts/:id(.:format)      posts#destroy"], output
       end
 
+      def test_routes_when_expanded
+        ActionDispatch::Routing::Mapper.route_source_locations = true
+        engine = Class.new(Rails::Engine) do
+          def self.inspect
+            "Blog::Engine"
+          end
+        end
+        file_name = ActiveSupport::BacktraceCleaner.new.clean([__FILE__]).first
+        lineno = __LINE__
+        engine.routes.draw do
+          get "/cart", to: "cart#show"
+        end
+
+        output = draw(formatter: ActionDispatch::Routing::ConsoleFormatter::Expanded.new(width: 23)) do
+          get "/custom/assets", to: "custom_assets#show"
+          get "/custom/furnitures", to: "custom_furnitures#show"
+          mount engine => "/blog", :as => "blog"
+        end
+
+        expected = ["--[ Route 1 ]----------",
+                     "Prefix            | custom_assets",
+                     "Verb              | GET",
+                     "URI               | /custom/assets(.:format)",
+                     "Controller#Action | custom_assets#show",
+                     "Source Location   | #{file_name}:#{lineno + 6}",
+                     "--[ Route 2 ]----------",
+                     "Prefix            | custom_furnitures",
+                     "Verb              | GET",
+                     "URI               | /custom/furnitures(.:format)",
+                     "Controller#Action | custom_furnitures#show",
+                     "Source Location   | #{file_name}:#{lineno + 7}",
+                     "--[ Route 3 ]----------",
+                     "Prefix            | blog",
+                     "Verb              | ",
+                     "URI               | /blog",
+                     "Controller#Action | Blog::Engine",
+                     "Source Location   | #{file_name}:#{lineno + 8}",
+                     "",
+                     "[ Routes for Blog::Engine ]",
+                     "--[ Route 1 ]----------",
+                     "Prefix            | cart",
+                     "Verb              | GET",
+                     "URI               | /cart(.:format)",
+                     "Controller#Action | cart#show",
+                     "Source Location   | #{file_name}:#{lineno + 2}"]
+
+        assert_equal expected, output
+      ensure
+        ActionDispatch::Routing::Mapper.route_source_locations = false
+      end
+
+      def test_no_routes_matched_filter_when_expanded
+        output = draw(grep: "rails/dummy", formatter: ActionDispatch::Routing::ConsoleFormatter::Expanded.new) do
+          get "photos/:id" => "photos#show", :id => /[A-Z]\d{5}/
+        end
+
+        assert_equal [
+          "No routes were found for this grep pattern.",
+          "For more information about routes, see the Rails guide: https://guides.rubyonrails.org/routing.html."
+        ], output
+      end
+
+      def test_not_routes_when_expanded
+        output = draw(grep: "rails/dummy", formatter: ActionDispatch::Routing::ConsoleFormatter::Expanded.new) { }
+
+        assert_equal [
+          "You don't have any routes defined!",
+          "",
+          "Please add some routes in config/routes.rb.",
+          "",
+          "For more information about routes, see the Rails guide: https://guides.rubyonrails.org/routing.html."
+        ], output
+      end
+
+      def test_routes_can_be_filtered_with_namespaced_controllers
+        output = draw(grep: "admin/posts") do
+          resources :articles
+          namespace :admin do
+            resources :posts
+          end
+        end
+
+        assert_equal ["         Prefix Verb   URI Pattern                     Controller#Action",
+                      "    admin_posts GET    /admin/posts(.:format)          admin/posts#index",
+                      "                POST   /admin/posts(.:format)          admin/posts#create",
+                      " new_admin_post GET    /admin/posts/new(.:format)      admin/posts#new",
+                      "edit_admin_post GET    /admin/posts/:id/edit(.:format) admin/posts#edit",
+                      "     admin_post GET    /admin/posts/:id(.:format)      admin/posts#show",
+                      "                PATCH  /admin/posts/:id(.:format)      admin/posts#update",
+                      "                PUT    /admin/posts/:id(.:format)      admin/posts#update",
+                      "                DELETE /admin/posts/:id(.:format)      admin/posts#destroy"], output
+      end
+
       def test_regression_route_with_controller_regexp
         output = draw do
-          get ':controller(/:action)', controller: /api\/[^\/]+/, format: false
+          ActionDispatch.deprecator.silence do
+            get ":controller(/:action)", controller: /api\/[^\/]+/, format: false
+          end
         end
 
         assert_equal ["Prefix Verb URI Pattern            Controller#Action",
-                      "       GET  /:controller(/:action) (?-mix:api\\/[^\\/]+)#:action"], output
+                      "       GET  /:controller(/:action) :controller#:action"], output
       end
+
+      def test_routes_with_undefined_filter
+        output = draw(controller: "Rails::MissingController") do
+          get "photos/:id" => "photos#show", :id => /[A-Z]\d{5}/
+        end
+
+        assert_equal [
+          "No routes were found for this controller.",
+          "For more information about routes, see the Rails guide: https://guides.rubyonrails.org/routing.html."
+        ], output
+      end
+
+      def test_no_routes_matched_filter
+        output = draw(grep: "rails/dummy") do
+          get "photos/:id" => "photos#show", :id => /[A-Z]\d{5}/
+        end
+
+        assert_equal [
+          "No routes were found for this grep pattern.",
+          "For more information about routes, see the Rails guide: https://guides.rubyonrails.org/routing.html."
+        ], output
+      end
+
+      def test_no_routes_were_defined
+        output = draw(grep: "Rails::DummyController") { }
+
+        assert_equal [
+          "You don't have any routes defined!",
+          "",
+          "Please add some routes in config/routes.rb.",
+          "",
+          "For more information about routes, see the Rails guide: https://guides.rubyonrails.org/routing.html."
+        ], output
+      end
+
+      def test_displaying_routes_for_internal_engines
+        engine = Class.new(Rails::Engine) do
+          def self.inspect
+            "Blog::Engine"
+          end
+        end
+        engine.routes.draw do
+          get "/cart", to: "cart#show"
+          post "/cart", to: "cart#create"
+          patch "/cart", to: "cart#update"
+        end
+
+        output = draw do
+          get "/custom/assets", to: "custom_assets#show"
+          mount engine => "/blog", as: "blog", internal: true
+        end
+
+        assert_equal [
+          "       Prefix Verb URI Pattern              Controller#Action",
+          "custom_assets GET  /custom/assets(.:format) custom_assets#show",
+        ], output
+      end
+
+      def test_route_with_proc_handler
+        output = draw do
+          get "/health", to: proc { [200, {}, ["OK"]] }
+        end
+        assert_equal [
+          "Prefix Verb URI Pattern       Controller#Action",
+          "health GET  /health(.:format) Inline handler (Proc/Lambda)"
+        ], output
+      end
+
+      private
+        def draw(formatter: ActionDispatch::Routing::ConsoleFormatter::Sheet.new, **options, &block)
+          @set.draw(&block)
+          inspector = ActionDispatch::Routing::RoutesInspector.new(@set.routes)
+          inspector.format(formatter, options).split("\n")
+        end
     end
   end
 end

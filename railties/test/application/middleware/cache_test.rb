@@ -1,4 +1,6 @@
-require 'isolation/abstract_unit'
+# frozen_string_literal: true
+
+require "isolation/abstract_unit"
 
 module ApplicationTests
   class CacheTest < ActiveSupport::TestCase
@@ -6,9 +8,11 @@ module ApplicationTests
 
     def setup
       build_app
-      boot_rails
-      require 'rack/test'
+      require "rack/test"
       extend Rack::Test::Methods
+
+      add_to_env_config "production", "config.cache_store = :memory_store"
+      add_to_env_config "production", "config.action_dispatch.rack_cache = true"
     end
 
     def teardown
@@ -20,7 +24,7 @@ module ApplicationTests
         class ExpiresController < ApplicationController
           def expires_header
             expires_in 10, public: !params[:private]
-            render text: SecureRandom.hex(16)
+            render plain: SecureRandom.hex(16)
           end
 
           def expires_etag
@@ -33,18 +37,18 @@ module ApplicationTests
           end
 
           def keeps_if_modified_since
-            render :text => request.headers['If-Modified-Since']
+            render plain: request.headers['If-Modified-Since']
           end
         private
           def render_conditionally(headers)
-            if stale?(headers.merge(public: !params[:private]))
-              render text: SecureRandom.hex(16)
+            if stale?(**headers.merge(public: !params[:private]))
+              render plain: SecureRandom.hex(16)
             end
           end
         end
       RUBY
 
-      app_file 'config/routes.rb', <<-RUBY
+      app_file "config/routes.rb", <<-RUBY
         Rails.application.routes.draw do
           get ':controller(/:action)'
         end
@@ -55,7 +59,7 @@ module ApplicationTests
       simple_controller
       expected = "Wed, 30 May 1984 19:43:31 GMT"
 
-      get "/expires/keeps_if_modified_since", {}, "HTTP_IF_MODIFIED_SINCE" => expected
+      get "/expires/keeps_if_modified_since", {}, { "HTTP_IF_MODIFIED_SINCE" => expected, "HTTPS" => "on" }
 
       assert_equal 200, last_response.status
       assert_equal expected, last_response.body, "cache should have kept If-Modified-Since"
@@ -66,27 +70,25 @@ module ApplicationTests
       app("development")
 
       get "/expires/expires_header"
-      assert_nil last_response.headers['X-Rack-Cache']
+      assert_nil last_response.headers["X-Rack-Cache"]
 
       body = last_response.body
 
       get "/expires/expires_header"
-      assert_nil last_response.headers['X-Rack-Cache']
+      assert_nil last_response.headers["X-Rack-Cache"]
       assert_not_equal body, last_response.body
     end
 
     def test_cache_works_with_expires
       simple_controller
 
-      add_to_config "config.action_dispatch.rack_cache = true"
-
-      get "/expires/expires_header"
+      get "/expires/expires_header", {}, { "HTTPS" => "on" }
       assert_equal "miss, store", last_response.headers["X-Rack-Cache"]
       assert_equal "max-age=10, public", last_response.headers["Cache-Control"]
 
       body = last_response.body
 
-      get "/expires/expires_header"
+      get "/expires/expires_header", {}, { "HTTPS" => "on" }
 
       assert_equal "fresh", last_response.headers["X-Rack-Cache"]
 
@@ -96,15 +98,13 @@ module ApplicationTests
     def test_cache_works_with_expires_private
       simple_controller
 
-      add_to_config "config.action_dispatch.rack_cache = true"
-
-      get "/expires/expires_header", private: true
+      get "/expires/expires_header", { private: true }, { "HTTPS" => "on" }
       assert_equal "miss",                last_response.headers["X-Rack-Cache"]
       assert_equal "private, max-age=10", last_response.headers["Cache-Control"]
 
       body = last_response.body
 
-      get "/expires/expires_header", private: true
+      get "/expires/expires_header", { private: true }, { "HTTPS" => "on" }
       assert_equal "miss",           last_response.headers["X-Rack-Cache"]
       assert_not_equal body,         last_response.body
     end
@@ -112,68 +112,60 @@ module ApplicationTests
     def test_cache_works_with_etags
       simple_controller
 
-      add_to_config "config.action_dispatch.rack_cache = true"
-
-      get "/expires/expires_etag"
-      assert_equal "miss, store", last_response.headers["X-Rack-Cache"]
+      get "/expires/expires_etag", {}, { "HTTPS" => "on" }
       assert_equal "public", last_response.headers["Cache-Control"]
+      assert_equal "miss, store", last_response.headers["X-Rack-Cache"]
 
-      body = last_response.body
       etag = last_response.headers["ETag"]
 
-      get "/expires/expires_etag", {}, "If-None-Match" => etag
+      get "/expires/expires_etag", {}, { "HTTP_IF_NONE_MATCH" => etag, "HTTPS" => "on" }
       assert_equal "stale, valid, store", last_response.headers["X-Rack-Cache"]
-      assert_equal body,                  last_response.body
+      assert_equal 304, last_response.status
+      assert_equal "", last_response.body
     end
 
     def test_cache_works_with_etags_private
       simple_controller
 
-      add_to_config "config.action_dispatch.rack_cache = true"
-
-      get "/expires/expires_etag", private: true
+      get "/expires/expires_etag", { private: true }, { "HTTPS" => "on" }
       assert_equal "miss",                                last_response.headers["X-Rack-Cache"]
       assert_equal "must-revalidate, private, max-age=0", last_response.headers["Cache-Control"]
 
       body = last_response.body
       etag = last_response.headers["ETag"]
 
-      get "/expires/expires_etag", {private: true}, "If-None-Match" => etag
-      assert_equal     "miss", last_response.headers["X-Rack-Cache"]
+      get "/expires/expires_etag", { private: true }, { "HTTP_IF_NONE_MATCH" => etag, "HTTPS" => "on" }
+      assert_equal "miss", last_response.headers["X-Rack-Cache"]
       assert_not_equal body,   last_response.body
     end
 
     def test_cache_works_with_last_modified
       simple_controller
 
-      add_to_config "config.action_dispatch.rack_cache = true"
-
-      get "/expires/expires_last_modified"
-      assert_equal "miss, store", last_response.headers["X-Rack-Cache"]
+      get "/expires/expires_last_modified", {}, { "HTTPS" => "on" }
       assert_equal "public", last_response.headers["Cache-Control"]
+      assert_equal "miss, store", last_response.headers["X-Rack-Cache"]
 
-      body = last_response.body
       last = last_response.headers["Last-Modified"]
 
-      get "/expires/expires_last_modified", {}, "If-Modified-Since" => last
+      get "/expires/expires_last_modified", {}, { "HTTP_IF_MODIFIED_SINCE" => last, "HTTPS" => "on" }
       assert_equal "stale, valid, store", last_response.headers["X-Rack-Cache"]
-      assert_equal body,                  last_response.body
+      assert_equal 304, last_response.status
+      assert_equal "", last_response.body
     end
 
     def test_cache_works_with_last_modified_private
       simple_controller
 
-      add_to_config "config.action_dispatch.rack_cache = true"
-
-      get "/expires/expires_last_modified", private: true
+      get "/expires/expires_last_modified", { private: true }, { "HTTPS" => "on" }
       assert_equal "miss",                                last_response.headers["X-Rack-Cache"]
       assert_equal "must-revalidate, private, max-age=0", last_response.headers["Cache-Control"]
 
       body = last_response.body
       last = last_response.headers["Last-Modified"]
 
-      get "/expires/expires_last_modified", {private: true}, "If-Modified-Since" => last
-      assert_equal     "miss", last_response.headers["X-Rack-Cache"]
+      get "/expires/expires_last_modified", { private: true }, { "HTTP_IF_MODIFIED_SINCE" => last, "HTTPS" => "on" }
+      assert_equal "miss", last_response.headers["X-Rack-Cache"]
       assert_not_equal body,   last_response.body
     end
   end

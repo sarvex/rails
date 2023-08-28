@@ -1,12 +1,14 @@
+# frozen_string_literal: true
+
 module Rails
-  # Returns the version of the currently loaded Rails as a <tt>Gem::Version</tt>
+  # Returns the currently loaded version of \Rails as a +Gem::Version+.
   def self.gem_version
     Gem::Version.new VERSION::STRING
   end
 
   module VERSION
-    MAJOR = 5
-    MINOR = 0
+    MAJOR = 7
+    MINOR = 1
     TINY  = 0
     PRE   = "alpha"
 

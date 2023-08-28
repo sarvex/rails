@@ -1,27 +1,30 @@
-require 'isolation/abstract_unit'
+# frozen_string_literal: true
+
+require "isolation/abstract_unit"
 
 module ApplicationTests
   class ApplicationRoutingTest < ActiveSupport::TestCase
-     require 'rack/test'
-     include Rack::Test::Methods
-     include ActiveSupport::Testing::Isolation
+    require "rack/test"
+    include Rack::Test::Methods
+    include ActiveSupport::Testing::Isolation
 
     def setup
       build_app
 
-      add_to_config("config.action_dispatch.show_exceptions = false")
+      add_to_config("config.action_dispatch.show_exceptions = :none")
 
       @simple_plugin = engine "weblog"
       @plugin = engine "blog"
       @metrics_plugin = engine "metrics"
 
-      app_file 'config/routes.rb', <<-RUBY
+      app_file "config/routes.rb", <<-RUBY
         Rails.application.routes.draw do
           mount Weblog::Engine, :at => '/', :as => 'weblog'
           resources :posts
           get "/engine_route" => "application_generating#engine_route"
           get "/engine_route_in_view" => "application_generating#engine_route_in_view"
           get "/weblog_engine_route" => "application_generating#weblog_engine_route"
+          get "/weblog_through_metric_engine_route" => "application_generating#weblog_through_metric_engine_route"
           get "/weblog_engine_route_in_view" => "application_generating#weblog_engine_route_in_view"
           get "/url_for_engine_route" => "application_generating#url_for_engine_route"
           get "/polymorphic_route" => "application_generating#polymorphic_route"
@@ -33,7 +36,6 @@ module ApplicationTests
           root :to => 'main#index'
         end
       RUBY
-
 
       @simple_plugin.write "lib/weblog.rb", <<-RUBY
         module Weblog
@@ -51,7 +53,7 @@ module ApplicationTests
       @simple_plugin.write "app/controllers/weblogs_controller.rb", <<-RUBY
         class WeblogsController < ActionController::Base
           def index
-            render text: request.url
+            render plain: request.url
           end
         end
       RUBY
@@ -75,7 +77,7 @@ module ApplicationTests
         module Metrics
           class GeneratingController < ActionController::Base
             def generate_blog_route
-              render text: blog.post_path(1)
+              render plain: blog.post_path(1)
             end
 
             def generate_blog_route_in_view
@@ -112,10 +114,12 @@ module ApplicationTests
       @plugin.write "config/routes.rb", <<-RUBY
         Blog::Engine.routes.draw do
           resources :posts
+          get '/different_context', to: 'posts#different_context'
           get '/generate_application_route', to: 'posts#generate_application_route'
           get '/application_route_in_view', to: 'posts#application_route_in_view'
           get '/engine_polymorphic_path', to: 'posts#engine_polymorphic_path'
           get '/engine_asset_path', to: 'posts#engine_asset_path'
+          get '/file_field_with_direct_upload_path', to: 'posts#file_field_with_direct_upload_path'
         end
       RUBY
 
@@ -123,14 +127,18 @@ module ApplicationTests
         module Blog
           class PostsController < ActionController::Base
             def index
-              render text: blog.post_path(1)
+              render plain: blog.post_path(1)
+            end
+
+            def different_context
+              render plain: blog.post_path(1, user: "ada")
             end
 
             def generate_application_route
               path = main_app.url_for(controller: "/main",
                                  action: "index",
                                  only_path: true)
-              render text: path
+              render plain: path
             end
 
             def application_route_in_view
@@ -138,11 +146,15 @@ module ApplicationTests
             end
 
             def engine_polymorphic_path
-              render text: polymorphic_path(Post.new)
+              render plain: polymorphic_path(Post.new)
             end
 
             def engine_asset_path
-              render inline: "<%= asset_path 'images/foo.png' %>"
+              render inline: "<%= asset_path 'images/foo.png', skip_pipeline: true %>"
+            end
+
+            def file_field_with_direct_upload_path
+              render inline: "<%= file_field_tag :image, direct_upload: true %>"
             end
           end
         end
@@ -151,7 +163,7 @@ module ApplicationTests
       app_file "app/controllers/application_generating_controller.rb", <<-RUBY
         class ApplicationGeneratingController < ActionController::Base
           def engine_route
-            render text: blog.posts_path
+            render plain: blog.posts_path
           end
 
           def engine_route_in_view
@@ -159,7 +171,14 @@ module ApplicationTests
           end
 
           def weblog_engine_route
-            render text: weblog.weblogs_path
+            render plain: weblog.weblogs_path
+          end
+
+          def weblog_through_metric_engine_route
+            # trigger definition of route helper
+            weblog.weblogs_path
+
+            render plain: metrics.respond_to?(:weblogs_path)
           end
 
           def weblog_engine_route_in_view
@@ -167,20 +186,18 @@ module ApplicationTests
           end
 
           def url_for_engine_route
-            render text: blog.url_for(controller: "blog/posts", action: "index", user: "john", only_path: true)
+            render plain: blog.url_for(controller: "blog/posts", action: "index", user: "john", only_path: true)
           end
 
           def polymorphic_route
-            render text: polymorphic_url([blog, Blog::Post.new])
+            render plain: polymorphic_url([blog, Blog::Post.new])
           end
 
           def application_polymorphic_path
-            render text: polymorphic_path(Blog::Post.new)
+            render plain: polymorphic_path(Blog::Post.new)
           end
         end
       RUBY
-
-      boot_rails
     end
 
     def teardown
@@ -199,8 +216,12 @@ module ApplicationTests
       get "/john/blog/posts"
       assert_equal "/john/blog/posts/1", last_response.body
 
+      # test generating engine route from engine with a different context
+      get "/john/blog/different_context"
+      assert_equal "/ada/blog/posts/1", last_response.body
+
       # test generating engine's route from engine with default_url_options
-      get "/john/blog/posts", {}, 'SCRIPT_NAME' => "/foo"
+      get "/john/blog/posts", {}, { "SCRIPT_NAME" => "/foo" }
       assert_equal "/foo/john/blog/posts/1", last_response.body
 
       # test generating engine's route from application
@@ -214,36 +235,35 @@ module ApplicationTests
       assert_equal "/john/blog/posts", last_response.body
 
       # test generating engine's route from application with default_url_options
-      get "/engine_route", {}, 'SCRIPT_NAME' => "/foo"
+      get "/engine_route", {}, { "SCRIPT_NAME" => "/foo" }
       assert_equal "/foo/anonymous/blog/posts", last_response.body
 
-      get "/url_for_engine_route", {}, 'SCRIPT_NAME' => "/foo"
+      get "/url_for_engine_route", {}, { "SCRIPT_NAME" => "/foo" }
       assert_equal "/foo/john/blog/posts", last_response.body
 
       # test generating application's route from engine
       get "/someone/blog/generate_application_route"
       assert_equal "/", last_response.body
 
-      get "/somone/blog/application_route_in_view"
+      get "/someone/blog/application_route_in_view"
       assert_equal "/", last_response.body
 
       # test generating engine's route from other engine
       get "/metrics/generate_blog_route"
-      assert_equal '/anonymous/blog/posts/1', last_response.body
+      assert_equal "/anonymous/blog/posts/1", last_response.body
 
       get "/metrics/generate_blog_route_in_view"
-      assert_equal '/anonymous/blog/posts/1', last_response.body
+      assert_equal "/anonymous/blog/posts/1", last_response.body
 
       # test generating engine's route from other engine with default_url_options
-      get "/metrics/generate_blog_route", {}, 'SCRIPT_NAME' => '/foo'
-      assert_equal '/foo/anonymous/blog/posts/1', last_response.body
+      get "/metrics/generate_blog_route", {}, { "SCRIPT_NAME" => "/foo" }
+      assert_equal "/foo/anonymous/blog/posts/1", last_response.body
 
-      get "/metrics/generate_blog_route_in_view", {}, 'SCRIPT_NAME' => '/foo'
-      assert_equal '/foo/anonymous/blog/posts/1', last_response.body
-
+      get "/metrics/generate_blog_route_in_view", {}, { "SCRIPT_NAME" => "/foo" }
+      assert_equal "/foo/anonymous/blog/posts/1", last_response.body
 
       # test generating application's route from engine with default_url_options
-      get "/someone/blog/generate_application_route", {}, 'SCRIPT_NAME' => '/foo'
+      get "/someone/blog/generate_application_route", {}, { "SCRIPT_NAME" => "/foo" }
       assert_equal "/foo/", last_response.body
 
       # test polymorphic routes
@@ -251,8 +271,8 @@ module ApplicationTests
       assert_equal "http://example.org/anonymous/blog/posts/44", last_response.body
 
       # test that correct path is generated for the same polymorphic_path call in an engine
-      get "/somone/blog/engine_polymorphic_path"
-      assert_equal "/somone/blog/posts/44", last_response.body
+      get "/someone/blog/engine_polymorphic_path"
+      assert_equal "/someone/blog/posts/44", last_response.body
 
       # and in an application
       get "/application_polymorphic_path"
@@ -261,6 +281,10 @@ module ApplicationTests
       # test that asset path will not get script_name when generated in the engine
       get "/someone/blog/engine_asset_path"
       assert_equal "/images/foo.png", last_response.body
+
+      # test that the active storage direct upload URL is added to a file field that explicitly requires it within en engine's view code
+      get "/someone/blog/file_field_with_direct_upload_path"
+      assert_equal "<input type=\"file\" name=\"image\" id=\"image\" data-direct-upload-url=\"http://example.org/rails/active_storage/direct_uploads\" />", last_response.body
     end
 
     test "route path for controller action when engine is mounted at root" do
@@ -269,6 +293,11 @@ module ApplicationTests
 
       get "/weblog_engine_route_in_view"
       assert_equal "/weblog", last_response.body
+    end
+
+    test "route helpers from weblog are not accessible through metrics engine" do
+      get "/weblog_through_metric_engine_route"
+      assert_equal "false", last_response.body
     end
   end
 end

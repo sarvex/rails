@@ -1,4 +1,6 @@
-require 'active_support/core_ext/object/duplicable'
+# frozen_string_literal: true
+
+require "active_support/core_ext/object/duplicable"
 
 class Object
   # Returns a deep copy of object if it's duplicable. If it's
@@ -39,8 +41,31 @@ class Hash
   #   hash[:a][:c] # => nil
   #   dup[:a][:c]  # => "c"
   def deep_dup
-    each_with_object(dup) do |(key, value), hash|
-      hash[key.deep_dup] = value.deep_dup
+    hash = dup
+    each_pair do |key, value|
+      if ::String === key || ::Symbol === key
+        hash[key] = value.deep_dup
+      else
+        hash.delete(key)
+        hash[key.deep_dup] = value.deep_dup
+      end
+    end
+    hash
+  end
+end
+
+class Module
+  # Returns a copy of module or class if it's anonymous. If it's
+  # named, returns +self+.
+  #
+  #   Object.deep_dup == Object # => true
+  #   klass = Class.new
+  #   klass.deep_dup == klass # => false
+  def deep_dup
+    if name.nil?
+      super
+    else
+      self
     end
   end
 end

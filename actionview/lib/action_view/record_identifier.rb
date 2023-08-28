@@ -1,33 +1,40 @@
-require 'active_support/core_ext/module'
-require 'action_view/model_naming'
+# frozen_string_literal: true
+
+require "active_support/core_ext/module"
+require "action_view/model_naming"
 
 module ActionView
+  # = Action View \Record \Identifier
+  #
   # RecordIdentifier encapsulates methods used by various ActionView helpers
   # to associate records with DOM elements.
   #
-  # Consider for example the following code that displays the body of a post:
+  # Consider for example the following code that form of post:
   #
-  #   <%= div_for(post) do %>
-  #     <%= post.body %>
+  #   <%= form_for(post) do |f| %>
+  #     <%= f.text_field :body %>
   #   <% end %>
   #
-  # When +post+ is a new, unsaved ActiveRecord::Base intance, the resulting HTML
+  # When +post+ is a new, unsaved ActiveRecord::Base instance, the resulting HTML
   # is:
   #
-  #    <div id="new_post" class="post">
-  #    </div>
+  #    <form class="new_post" id="new_post" action="/posts" accept-charset="UTF-8" method="post">
+  #      <input type="text" name="post[body]" id="post_body" />
+  #    </form>
   #
   # When +post+ is a persisted ActiveRecord::Base instance, the resulting HTML
   # is:
   #
-  #   <div id="post_42" class="post">
-  #     What a wonderful world!
-  #   </div>
+  #   <form class="edit_post" id="edit_post_42" action="/posts/42" accept-charset="UTF-8" method="post">
+  #     <input type="text" value="What a wonderful world!" name="post[body]" id="post_body" />
+  #   </form>
   #
   # In both cases, the +id+ and +class+ of the wrapping DOM element are
   # automatically generated, following naming conventions encapsulated by the
   # RecordIdentifier methods #dom_id and #dom_class:
   #
+  #   dom_id(Post)             # => "new_post"
+  #   dom_class(Post)          # => "post"
   #   dom_id(Post.new)         # => "new_post"
   #   dom_class(Post.new)      # => "post"
   #   dom_id(Post.find 42)     # => "post_42"
@@ -56,8 +63,8 @@ module ActionView
 
     include ModelNaming
 
-    JOIN = '_'.freeze
-    NEW = 'new'.freeze
+    JOIN = "_"
+    NEW = "new"
 
     # The DOM class convention is to use the singular form of an object or class.
     #
@@ -76,23 +83,25 @@ module ActionView
     # The DOM id convention is to use the singular form of an object or class with the id following an underscore.
     # If no id is found, prefix with "new_" instead.
     #
-    #   dom_id(Post.find(45))       # => "post_45"
-    #   dom_id(Post.new)            # => "new_post"
+    #   dom_id(Post.find(45)) # => "post_45"
+    #   dom_id(Post)          # => "new_post"
     #
     # If you need to address multiple instances of the same class in the same view, you can prefix the dom_id:
     #
     #   dom_id(Post.find(45), :edit) # => "edit_post_45"
-    #   dom_id(Post.new, :custom)    # => "custom_post"
-    def dom_id(record, prefix = nil)
-      if record_id = record_key_for_dom_id(record)
-        "#{dom_class(record, prefix)}#{JOIN}#{record_id}"
+    #   dom_id(Post, :custom)        # => "custom_post"
+    def dom_id(record_or_class, prefix = nil)
+      raise ArgumentError, "dom_id must be passed a record_or_class as the first argument, you passed #{record_or_class.inspect}" unless record_or_class
+
+      record_id = record_key_for_dom_id(record_or_class) unless record_or_class.is_a?(Class)
+      if record_id
+        "#{dom_class(record_or_class, prefix)}#{JOIN}#{record_id}"
       else
-        dom_class(record, prefix || NEW)
+        dom_class(record_or_class, prefix || NEW)
       end
     end
 
-  protected
-
+  private
     # Returns a string representation of the key attribute(s) that is suitable for use in an HTML DOM id.
     # This can be overwritten to customize the default generated string representation if desired.
     # If you need to read back a key from a dom_id in order to query for the underlying database record,
@@ -100,8 +109,8 @@ module ActionView
     # on the default implementation (which just joins all key attributes with '_') or on your own
     # overwritten version of the method. By default, this implementation passes the key string through a
     # method that replaces all characters that are invalid inside DOM ids, with valid ones. You need to
-    # make sure yourself that your dom ids are valid, in case you overwrite this method.
-    def record_key_for_dom_id(record)
+    # make sure yourself that your dom ids are valid, in case you override this method.
+    def record_key_for_dom_id(record) # :doc:
       key = convert_to_model(record).to_key
       key ? key.join(JOIN) : key
     end

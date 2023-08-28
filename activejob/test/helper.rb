@@ -1,18 +1,25 @@
-require File.expand_path('../../../load_paths', __FILE__)
+# frozen_string_literal: true
 
-require 'active_job'
-require 'support/job_buffer'
+require "active_support/testing/strict_warnings"
+require "active_job"
+require "support/job_buffer"
 
-GlobalID.app = 'aj'
+GlobalID.app = "aj"
 
-@adapter  = ENV['AJ_ADAPTER'] || 'inline'
+@adapter = ENV["AJ_ADAPTER"] ||= "inline"
+puts "Using #{@adapter}"
 
-if ENV['AJ_INTEGRATION_TESTS']
-  require 'support/integration/helper'
+if ENV["AJ_INTEGRATION_TESTS"]
+  require "support/integration/helper"
 else
+  ActiveJob::Base.logger = Logger.new(nil)
   require "adapters/#{@adapter}"
 end
 
-require 'active_support/testing/autorun'
+require "active_support/testing/autorun"
 
-ActiveSupport::TestCase.test_order = :random
+require_relative "../../tools/test_common"
+
+def adapter_is?(*adapter_class_symbols)
+  adapter_class_symbols.map(&:to_s).include? ActiveJob::Base.queue_adapter_name
+end

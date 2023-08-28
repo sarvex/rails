@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module PostgreSQL
@@ -10,7 +12,7 @@ module ActiveRecord
         attr_reader :schema, :identifier
 
         def initialize(schema, identifier)
-          @schema, @identifier = unquote(schema), unquote(identifier)
+          @schema, @identifier = Utils.unquote_identifier(schema), Utils.unquote_identifier(identifier)
         end
 
         def to_s
@@ -19,9 +21,9 @@ module ActiveRecord
 
         def quoted
           if schema
-            PGconn.quote_ident(schema) << SEPARATOR << PGconn.quote_ident(identifier)
+            PG::Connection.quote_ident(schema) << SEPARATOR << PG::Connection.quote_ident(identifier)
           else
-            PGconn.quote_ident(identifier)
+            PG::Connection.quote_ident(identifier)
           end
         end
 
@@ -35,14 +37,6 @@ module ActiveRecord
         end
 
         protected
-          def unquote(part)
-            if part && part.start_with?('"')
-              part[1..-2]
-            else
-              part
-            end
-          end
-
           def parts
             @parts ||= [@schema, @identifier].compact
           end
@@ -53,7 +47,7 @@ module ActiveRecord
 
         # Returns an instance of <tt>ActiveRecord::ConnectionAdapters::PostgreSQL::Name</tt>
         # extracted from +string+.
-        # +schema+ is nil if not specified in +string+.
+        # +schema+ is +nil+ if not specified in +string+.
         # +schema+ and +identifier+ exclude surrounding quotes (regardless of whether provided in +string+)
         # +string+ supports the range of schema/table references understood by PostgreSQL, for example:
         #
@@ -64,12 +58,20 @@ module ActiveRecord
         # * <tt>"schema_name".table_name</tt>
         # * <tt>"schema.name"."table name"</tt>
         def extract_schema_qualified_name(string)
-          schema, table = string.scan(/[^".\s]+|"[^"]*"/)
+          schema, table = string.scan(/[^".]+|"[^"]*"/)
           if table.nil?
             table = schema
             schema = nil
           end
           PostgreSQL::Name.new(schema, table)
+        end
+
+        def unquote_identifier(identifier)
+          if identifier && identifier.start_with?('"')
+            identifier[1..-2]
+          else
+            identifier
+          end
         end
       end
     end

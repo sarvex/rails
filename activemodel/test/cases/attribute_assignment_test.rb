@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require "cases/helper"
+require "active_support/core_ext/hash/indifferent_access"
 require "active_support/hash_with_indifferent_access"
 
 class AttributeAssignmentTest < ActiveModel::TestCase
@@ -15,21 +18,39 @@ class AttributeAssignmentTest < ActiveModel::TestCase
       raise ErrorFromAttributeWriter
     end
 
-    protected
-
-    attr_writer :metadata
+    private
+      attr_writer :metadata
   end
 
   class ErrorFromAttributeWriter < StandardError
   end
 
-  class ProtectedParams < ActiveSupport::HashWithIndifferentAccess
-    def permit!
-      @permitted = true
+  class ProtectedParams
+    attr_accessor :permitted
+    alias :permitted? :permitted
+
+    delegate :keys, :key?, :has_key?, :empty?, to: :@parameters
+
+    def initialize(attributes)
+      @parameters = attributes.with_indifferent_access
+      @permitted = false
     end
 
-    def permitted?
-      @permitted ||= false
+    def permit!
+      @permitted = true
+      self
+    end
+
+    def [](key)
+      @parameters[key]
+    end
+
+    def to_h
+      @parameters
+    end
+
+    def each_pair(&block)
+      @parameters.each_pair(&block)
     end
 
     def dup
@@ -47,6 +68,14 @@ class AttributeAssignmentTest < ActiveModel::TestCase
     assert_equal "world", model.description
   end
 
+  test "simple assignment alias" do
+    model = Model.new
+
+    model.attributes = { name: "hello", description: "world" }
+    assert_equal "hello", model.name
+    assert_equal "world", model.description
+  end
+
   test "assign non-existing attribute" do
     model = Model.new
     error = assert_raises(ActiveModel::UnknownAttributeError) do
@@ -58,8 +87,6 @@ class AttributeAssignmentTest < ActiveModel::TestCase
   end
 
   test "assign private attribute" do
-    rubinius_skip "https://github.com/rubinius/rubinius/issues/3328"
-
     model = Model.new
     assert_raises(ActiveModel::UnknownAttributeError) do
       model.assign_attributes(metadata: { a: 1 })
@@ -72,10 +99,12 @@ class AttributeAssignmentTest < ActiveModel::TestCase
     end
   end
 
-  test "an ArgumentError is raised if a non-hash-like obejct is passed" do
-    assert_raises(ArgumentError) do
+  test "an ArgumentError is raised if a non-hash-like object is passed" do
+    err = assert_raises(ArgumentError) do
       Model.new(1)
     end
+
+    assert_equal("When assigning attributes, you must pass a hash as an argument, Integer passed.", err.message)
   end
 
   test "forbidden attributes cannot be used for mass assignment" do
