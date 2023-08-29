@@ -183,7 +183,7 @@ GEM
     crass (1.0.6)
     cssbundling-rails (1.1.2)
       railties (>= 6.0.0)
-    dalli (3.2.3)
+    dalli (3.2.5)
     dante (0.2.0)
     dartsass-rails (0.5.0)
       railties (>= 6.0.0)
