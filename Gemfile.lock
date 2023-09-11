@@ -148,7 +148,7 @@ GEM
       faraday_middleware (~> 1.0, >= 1.0.0.rc1)
       net-http-persistent (~> 4.0)
       nokogiri (~> 1, >= 1.10.8)
-    backburner (1.6.0)
+    backburner (1.6.1)
       beaneater (~> 1.0)
       concurrent-ruby (~> 1.0, >= 1.0.1)
       dante (> 0.1.5)
