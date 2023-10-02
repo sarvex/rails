@@ -490,7 +490,7 @@ GEM
     serverengine (2.0.7)
       sigdump (~> 0.2.2)
     set (1.0.3)
-    sidekiq (7.1.4)
+    sidekiq (7.1.5)
       concurrent-ruby (< 2)
       connection_pool (>= 2.3.0)
       rack (>= 2.2.4)
