@@ -64,7 +64,7 @@ group :doc do
   else
     gem "sdoc", ">= 2.6.0"
   end
-  gem "rdoc", "~> 6.5"
+  gem "rdoc", "~> 6.6"
   gem "redcarpet", "~> 3.6.0", platforms: :ruby
   gem "w3c_validators", "~> 1.3.6"
   gem "rouge"
