@@ -3121,10 +3121,10 @@ tough-cookie@~2.4.3:
     psl "^1.1.24"
     punycode "^1.4.1"
 
-trix@^2.0.0:
-  version "2.0.5"
-  resolved "https://registry.npmjs.org/trix/-/trix-2.0.5.tgz"
-  integrity sha512-OiCbDf17F7JahEwhyL1MvK9DxAAT1vkaW5sn+zpwfemZAcc4RfQB4ku18/1mKP58LRwBhjcy+6TBho7ciXz52Q==
+trix@^2.0.5:
+  version "2.0.7"
+  resolved "https://registry.yarnpkg.com/trix/-/trix-2.0.7.tgz#21cd94616864f908ec802fe029e69f628a694eca"
+  integrity sha512-qnqElm1BA4XYMgwowEHlF4xE4wfEjFBpmybvdzVUQP4OTzQxRXVEQNP4WSvWT6HzV4wYFP06/HSo14fWoGo6jQ==
 
 tsconfig-paths@^3.14.1:
   version "3.14.2"
