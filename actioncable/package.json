@@ -26,8 +26,8 @@
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-commonjs": "^19.0.1",
-    "eslint": "^4.3.0",
-    "eslint-plugin-import": "^2.7.0",
+    "eslint": "4.19.1",
+    "eslint-plugin-import": "2.27.5",
     "karma": "^6.4.2",
     "karma-chrome-launcher": "^2.2.0",
     "karma-qunit": "^3.1.3",
