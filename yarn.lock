@@ -3244,12 +3244,10 @@ mkdirp@^0.5.3, mkdirp@^0.5.5:
   dependencies:
     minimist "^1.2.6"
 
-mock-socket@^2.0.0:
-  version "2.0.0"
-  resolved "https://registry.npmjs.org/mock-socket/-/mock-socket-2.0.0.tgz"
-  integrity sha512-31GezEGTnFCaex8aEnG5Va7wEO44DRq6GEz7JllC/IvuOxg9pcnEI7f14GH1VPQb40AGJHvZG/Nu/ly8UppG6g==
-  dependencies:
-    urijs "~1.17.0"
+mock-socket@^9.3.1:
+  version "9.3.1"
+  resolved "https://registry.yarnpkg.com/mock-socket/-/mock-socket-9.3.1.tgz#24fb00c2f573c84812aa4a24181bb025de80cc8e"
+  integrity sha512-qxBgB7Qa2sEQgHFjj0dSigq7fX4k6Saisd5Nelwp2q8mlbAFh5dHV9JTTlF8viYJLSSWgMCZFUom8PJcMNBoJw==
 
 ms@2.0.0:
   version "2.0.0"
@@ -4662,11 +4660,6 @@ uri-js@^4.2.2:
   integrity sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==
   dependencies:
     punycode "^2.1.0"
-
-urijs@~1.17.0:
-  version "1.17.1"
-  resolved "https://registry.npmjs.org/urijs/-/urijs-1.17.1.tgz"
-  integrity sha512-vG1NrwxlfideDDpZAbV3sitGyPW4UORs1Y4MDwHtvpWO8n/W0CPNpemvAvgrt9oy4F7MmMWGpu3lz+BZFke+Bw==
 
 url-parse-lax@^3.0.0:
   version "3.0.0"
