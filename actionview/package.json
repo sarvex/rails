@@ -40,7 +40,7 @@
     "jquery": "^3.7.1",
     "karma": "^6.4.2",
     "karma-chrome-launcher": "^3.2.0",
-    "karma-qunit": "^4.1.2",
+    "karma-qunit": "^4.2.0",
     "karma-sauce-launcher": "^4.3.6",
     "qunit": "^2.20.0",
     "rollup": "^2.53.3",
