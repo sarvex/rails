@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.2.3",
-    "@rollup/plugin-commonjs": "^25.0.8",
+    "@rollup/plugin-commonjs": "^28.0.3",
     "eslint": "^8.57.0",
     "eslint-plugin-import": "^2.29.1",
     "rollup": "^2.35.1",
