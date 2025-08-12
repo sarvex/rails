@@ -12,7 +12,7 @@ jobs:
       BUNDLE_WITHOUT: db:job:cable:storage:ujs
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Ruby 3.2
       uses: ruby/setup-ruby@v1
